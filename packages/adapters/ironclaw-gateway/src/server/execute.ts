@@ -901,6 +901,14 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     headers.authorization = toAuthorizationHeaderValue(authToken);
   }
 
+  // IronClaw requires Origin header for WebSocket CSRF protection.
+  // Use http:// or https:// as the scheme (not ws://) since IronClaw expects HTTP origins.
+  if (!headerMapHasIgnoreCase(headers, "origin")) {
+    const httpScheme = parsedUrl.protocol === "wss:" ? "https:" : "http:";
+    const gatewayOrigin = `${httpScheme}//${parsedUrl.host}`;
+    headers.origin = gatewayOrigin;
+  }
+
   const clientId = nonEmpty(ctx.config.clientId) ?? DEFAULT_CLIENT_ID;
   const clientMode = nonEmpty(ctx.config.clientMode) ?? DEFAULT_CLIENT_MODE;
   const clientVersion = nonEmpty(ctx.config.clientVersion) ?? DEFAULT_CLIENT_VERSION;
