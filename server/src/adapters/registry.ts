@@ -33,6 +33,14 @@ import {
   agentConfigurationDoc as openCodeAgentConfigurationDoc,
 } from "@paperclipai/adapter-opencode-local";
 import {
+  execute as ironclawGatewayExecute,
+  testEnvironment as ironclawGatewayTestEnvironment,
+} from "@paperclipai/adapter-ironclaw-gateway/server";
+import {
+  agentConfigurationDoc as ironclawGatewayAgentConfigurationDoc,
+  models as ironclawGatewayModels,
+} from "@paperclipai/adapter-ironclaw-gateway";
+import {
   execute as openclawGatewayExecute,
   testEnvironment as openclawGatewayTestEnvironment,
 } from "@paperclipai/adapter-openclaw-gateway/server";
@@ -105,6 +113,15 @@ const openclawGatewayAdapter: ServerAdapterModule = {
   agentConfigurationDoc: openclawGatewayAgentConfigurationDoc,
 };
 
+const ironclawGatewayAdapter: ServerAdapterModule = {
+  type: "ironclaw_gateway",
+  execute: ironclawGatewayExecute,
+  testEnvironment: ironclawGatewayTestEnvironment,
+  models: ironclawGatewayModels,
+  supportsLocalAgentJwt: false,
+  agentConfigurationDoc: ironclawGatewayAgentConfigurationDoc,
+};
+
 const openCodeLocalAdapter: ServerAdapterModule = {
   type: "opencode_local",
   execute: openCodeExecute,
@@ -135,6 +152,7 @@ const adaptersByType = new Map<string, ServerAdapterModule>(
     piLocalAdapter,
     cursorLocalAdapter,
     geminiLocalAdapter,
+    ironclawGatewayAdapter,
     openclawGatewayAdapter,
     processAdapter,
     httpAdapter,

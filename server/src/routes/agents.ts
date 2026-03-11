@@ -50,6 +50,34 @@ export function agentRoutes(db: Db) {
   };
   const KNOWN_INSTRUCTIONS_PATH_KEYS = new Set(["instructionsFilePath", "agentsMdPath"]);
 
+  function setInstructionsPathKey(
+    adapterConfig: Record<string, unknown>,
+    key: string,
+    value: string | null,
+  ): Record<string, unknown> {
+    if (key === "instructionsFilePath") {
+      if (value === null) {
+        const { instructionsFilePath: _instructionsFilePath, ...rest } = adapterConfig;
+        return rest;
+      }
+      return { ...adapterConfig, instructionsFilePath: value };
+    }
+    if (key === "agentsMdPath") {
+      if (value === null) {
+        const { agentsMdPath: _agentsMdPath, ...rest } = adapterConfig;
+        return rest;
+      }
+      return { ...adapterConfig, agentsMdPath: value };
+    }
+    throw unprocessable(`Unsupported adapterConfigKey '${key}'`);
+  }
+
+  function readInstructionsPathKey(adapterConfig: Record<string, unknown>, key: string): string | null {
+    if (key === "instructionsFilePath") return asNonEmptyString(adapterConfig.instructionsFilePath);
+    if (key === "agentsMdPath") return asNonEmptyString(adapterConfig.agentsMdPath);
+    return null;
+  }
+
   const router = Router();
   const svc = agentService(db);
   const access = accessService(db);
@@ -210,7 +238,7 @@ export function agentRoutes(db: Db) {
     adapterType: string | null | undefined,
     adapterConfig: Record<string, unknown>,
   ): Record<string, unknown> {
-    if (adapterType !== "openclaw_gateway") return adapterConfig;
+    if (adapterType !== "openclaw_gateway" && adapterType !== "ironclaw_gateway") return adapterConfig;
     const disableDeviceAuth = parseBooleanLike(adapterConfig.disableDeviceAuth) === true;
     if (disableDeviceAuth) return adapterConfig;
     if (asNonEmptyString(adapterConfig.devicePrivateKeyPem)) return adapterConfig;
@@ -887,12 +915,10 @@ export function agentRoutes(db: Db) {
       return;
     }
 
-    const nextAdapterConfig: Record<string, unknown> = { ...existingAdapterConfig };
-    if (req.body.path === null) {
-      delete nextAdapterConfig[adapterConfigKey];
-    } else {
-      nextAdapterConfig[adapterConfigKey] = resolveInstructionsFilePath(req.body.path, existingAdapterConfig);
-    }
+    const resolvedPath = req.body.path === null
+      ? null
+      : resolveInstructionsFilePath(req.body.path, existingAdapterConfig);
+    const nextAdapterConfig = setInstructionsPathKey(existingAdapterConfig, adapterConfigKey, resolvedPath);
 
     const normalizedAdapterConfig = await secretsSvc.normalizeAdapterConfigForPersistence(
       existing.companyId,
@@ -917,7 +943,7 @@ export function agentRoutes(db: Db) {
     }
 
     const updatedAdapterConfig = asRecord(agent.adapterConfig) ?? {};
-    const pathValue = asNonEmptyString(updatedAdapterConfig[adapterConfigKey]);
+    const pathValue = readInstructionsPathKey(updatedAdapterConfig, adapterConfigKey);
 
     await logActivity(db, {
       companyId: agent.companyId,
