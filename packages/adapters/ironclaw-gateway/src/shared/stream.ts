@@ -1,4 +1,4 @@
-export function normalizeOpenClawGatewayStreamLine(rawLine: string): {
+export function normalizeIronClawGatewayStreamLine(rawLine: string): {
   stream: "stdout" | "stderr" | null;
   line: string;
 } {
@@ -14,3 +14,5 @@ export function normalizeOpenClawGatewayStreamLine(rawLine: string): {
   const line = (prefixed[2] ?? "").trim();
   return { stream, line };
 }
+
+export const normalizeOpenClawGatewayStreamLine = normalizeIronClawGatewayStreamLine;

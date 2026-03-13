@@ -1,5 +1,5 @@
 import type { TranscriptEntry } from "@paperclipai/adapter-utils";
-import { normalizeOpenClawGatewayStreamLine } from "../shared/stream.js";
+import { normalizeIronClawGatewayStreamLine } from "../shared/stream.js";
 
 function safeJsonParse(text: string): unknown {
   try {
@@ -18,8 +18,16 @@ function asString(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
+function isGatewayEventLine(line: string): boolean {
+  return line.startsWith("[ironclaw-gateway:event]") || line.startsWith("[openclaw-gateway:event]");
+}
+
+function isGatewaySystemLine(line: string): boolean {
+  return line.startsWith("[ironclaw-gateway]") || line.startsWith("[openclaw-gateway]");
+}
+
 function parseAgentEventLine(line: string, ts: string): TranscriptEntry[] {
-  const match = line.match(/^\[openclaw-gateway:event\]\s+run=([^\s]+)\s+stream=([^\s]+)\s+data=(.*)$/s);
+  const match = line.match(/^\[(?:ironclaw|openclaw)-gateway:event\]\s+run=([^\s]+)\s+stream=([^\s]+)\s+data=(.*)$/s);
   if (!match) return [{ kind: "stdout", ts, text: line }];
 
   const stream = asString(match[2]).toLowerCase();
@@ -54,8 +62,8 @@ function parseAgentEventLine(line: string, ts: string): TranscriptEntry[] {
   return [];
 }
 
-export function parseOpenClawGatewayStdoutLine(line: string, ts: string): TranscriptEntry[] {
-  const normalized = normalizeOpenClawGatewayStreamLine(line);
+export function parseIronClawGatewayStdoutLine(line: string, ts: string): TranscriptEntry[] {
+  const normalized = normalizeIronClawGatewayStreamLine(line);
   if (normalized.stream === "stderr") {
     return [{ kind: "stderr", ts, text: normalized.line }];
   }
@@ -63,13 +71,15 @@ export function parseOpenClawGatewayStdoutLine(line: string, ts: string): Transc
   const trimmed = normalized.line.trim();
   if (!trimmed) return [];
 
-  if (trimmed.startsWith("[openclaw-gateway:event]")) {
+  if (isGatewayEventLine(trimmed)) {
     return parseAgentEventLine(trimmed, ts);
   }
 
-  if (trimmed.startsWith("[openclaw-gateway]")) {
-    return [{ kind: "system", ts, text: trimmed.replace(/^\[openclaw-gateway\]\s*/, "") }];
+  if (isGatewaySystemLine(trimmed)) {
+    return [{ kind: "system", ts, text: trimmed.replace(/^\[(?:ironclaw|openclaw)-gateway\]\s*/, "") }];
   }
 
   return [{ kind: "stdout", ts, text: normalized.line }];
 }
+
+export const parseOpenClawGatewayStdoutLine = parseIronClawGatewayStdoutLine;

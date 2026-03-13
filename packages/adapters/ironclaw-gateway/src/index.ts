@@ -16,8 +16,8 @@ Don't use when:
 - Your deployment does not permit outbound WebSocket access from the Paperclip server.
 
 Core fields:
-- url (string, required): IronClaw gateway WebSocket URL (ws:// or wss://)
-- headers (object, optional): handshake headers; supports x-openclaw-token / x-openclaw-auth
+- url (string, required): IronClaw gateway WebSocket URL (use the ws or wss scheme)
+- headers (object, optional): handshake headers; supports x-ironclaw-token / x-ironclaw-auth (legacy x-openclaw-* also accepted)
 - authToken (string, optional): shared gateway token override
 - password (string, optional): gateway shared password, if configured
 

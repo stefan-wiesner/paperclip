@@ -331,6 +331,18 @@ export function buildJoinDefaultsPayloadForAccept(input: {
   inboundOpenClawAuthHeader?: string | null;
   inboundOpenClawTokenHeader?: string | null;
 }): unknown {
+  if (input.adapterType === "ironclaw_gateway") {
+    const merged = isPlainObject(input.defaultsPayload)
+      ? { ...(input.defaultsPayload as Record<string, unknown>) }
+      : ({} as Record<string, unknown>);
+    if (!nonEmptyTrimmedString(merged.authToken)) {
+      const tokenFromInbound =
+        nonEmptyTrimmedString(input.inboundOpenClawTokenHeader) ??
+        nonEmptyTrimmedString(input.inboundOpenClawAuthHeader);
+      if (tokenFromInbound) merged.authToken = tokenFromInbound;
+    }
+    return Object.keys(merged).length > 0 ? merged : null;
+  }
   if (input.adapterType !== "openclaw_gateway") {
     return input.defaultsPayload;
   }
@@ -434,18 +446,20 @@ export function canReplayOpenClawGatewayInviteAccept(input: {
     "requestType" | "adapterType" | "status"
   > | null;
 }): boolean {
-  if (
-    input.requestType !== "agent" ||
-    input.adapterType !== "openclaw_gateway"
-  ) {
+  const isGatewayAdapter =
+    input.adapterType === "openclaw_gateway" || input.adapterType === "ironclaw_gateway";
+  if (input.requestType !== "agent" || !isGatewayAdapter) {
     return false;
   }
   if (!input.existingJoinRequest) {
     return false;
   }
+  const existingIsGateway =
+    input.existingJoinRequest.adapterType === "openclaw_gateway" ||
+    input.existingJoinRequest.adapterType === "ironclaw_gateway";
   if (
     input.existingJoinRequest.requestType !== "agent" ||
-    input.existingJoinRequest.adapterType !== "openclaw_gateway"
+    !existingIsGateway
   ) {
     return false;
   }
@@ -464,6 +478,23 @@ function summarizeSecretForLog(
     present: true,
     length: trimmed.length,
     sha256Prefix: hashToken(trimmed).slice(0, 12)
+  };
+}
+
+function summarizeIronClawGatewayDefaultsForLog(defaultsPayload: unknown) {
+  const defaults = isPlainObject(defaultsPayload)
+    ? (defaultsPayload as Record<string, unknown>)
+    : null;
+  return {
+    present: Boolean(defaults),
+    keys: defaults ? Object.keys(defaults).sort() : [],
+    url: defaults ? nonEmptyTrimmedString(defaults.url) : null,
+    authToken: defaults ? summarizeSecretForLog(defaults.authToken) : null,
+    disableDeviceAuth: defaults ? parseBooleanLike(defaults.disableDeviceAuth) : null,
+    waitTimeoutMs:
+      defaults && typeof defaults.waitTimeoutMs === "number"
+        ? defaults.waitTimeoutMs
+        : null
   };
 }
 
@@ -514,6 +545,9 @@ export function normalizeAgentDefaultsForJoin(input: {
 }) {
   const fatalErrors: string[] = [];
   const diagnostics: JoinDiagnostic[] = [];
+  if (input.adapterType === "ironclaw_gateway") {
+    return normalizeIronClawGatewayDefaultsForJoin(input.defaultsPayload, diagnostics, fatalErrors);
+  }
   if (input.adapterType !== "openclaw_gateway") {
     const normalized = isPlainObject(input.defaultsPayload)
       ? (input.defaultsPayload as Record<string, unknown>)
@@ -752,6 +786,139 @@ export function normalizeAgentDefaultsForJoin(input: {
         message: `Invalid paperclipApiUrl: ${rawPaperclipApiUrl}`
       });
     }
+  }
+
+  return { normalized, diagnostics, fatalErrors };
+}
+
+function normalizeIronClawGatewayDefaultsForJoin(
+  defaultsPayload: unknown,
+  diagnostics: JoinDiagnostic[],
+  fatalErrors: string[]
+): { normalized: Record<string, unknown> | null; diagnostics: JoinDiagnostic[]; fatalErrors: string[] } {
+  if (!isPlainObject(defaultsPayload)) {
+    diagnostics.push({
+      code: "ironclaw_gateway_defaults_missing",
+      level: "warn",
+      message: "No IronClaw gateway config was provided in agentDefaultsPayload.",
+      hint: "Include agentDefaultsPayload.url and authToken for IronClaw gateway joins."
+    });
+    fatalErrors.push("agentDefaultsPayload is required for adapterType=ironclaw_gateway");
+    return { normalized: null, diagnostics, fatalErrors };
+  }
+
+  const defaults = defaultsPayload as Record<string, unknown>;
+  const normalized: Record<string, unknown> = {};
+
+  const rawGatewayUrl = nonEmptyTrimmedString(defaults.url);
+  if (!rawGatewayUrl) {
+    diagnostics.push({
+      code: "ironclaw_gateway_url_missing",
+      level: "warn",
+      message: "IronClaw gateway URL is missing.",
+      hint: "Set agentDefaultsPayload.url to ws:// or wss:// gateway URL."
+    });
+    fatalErrors.push("agentDefaultsPayload.url is required");
+  } else {
+    try {
+      const gatewayUrl = new URL(rawGatewayUrl);
+      if (gatewayUrl.protocol !== "ws:" && gatewayUrl.protocol !== "wss:") {
+        diagnostics.push({
+          code: "ironclaw_gateway_url_protocol",
+          level: "warn",
+          message: `IronClaw gateway URL must use ws:// or wss:// (got ${gatewayUrl.protocol}).`
+        });
+        fatalErrors.push("agentDefaultsPayload.url must use ws:// or wss:// for ironclaw_gateway");
+      } else {
+        normalized.url = gatewayUrl.toString();
+        diagnostics.push({
+          code: "ironclaw_gateway_url_configured",
+          level: "info",
+          message: `Gateway endpoint set to ${gatewayUrl.toString()}`
+        });
+      }
+    } catch {
+      diagnostics.push({
+        code: "ironclaw_gateway_url_invalid",
+        level: "warn",
+        message: `Invalid IronClaw gateway URL: ${rawGatewayUrl}`
+      });
+      fatalErrors.push("agentDefaultsPayload.url is not a valid URL");
+    }
+  }
+
+  const authToken = nonEmptyTrimmedString(defaults.authToken);
+  if (!authToken) {
+    diagnostics.push({
+      code: "ironclaw_gateway_auth_token_missing",
+      level: "warn",
+      message: "Gateway auth token is missing from agent defaults.",
+      hint: "Set agentDefaultsPayload.authToken to the IronClaw GATEWAY_AUTH_TOKEN."
+    });
+    fatalErrors.push("agentDefaultsPayload.authToken is required for ironclaw_gateway");
+  } else if (authToken.length < 16) {
+    diagnostics.push({
+      code: "ironclaw_gateway_auth_token_too_short",
+      level: "warn",
+      message: `Gateway auth token appears too short (${authToken.length} chars).`,
+      hint: "Use the full GATEWAY_AUTH_TOKEN from the IronClaw runtime env."
+    });
+    fatalErrors.push("agentDefaultsPayload.authToken is too short; expected a full gateway token");
+  } else {
+    normalized.authToken = authToken;
+    diagnostics.push({
+      code: "ironclaw_gateway_auth_token_configured",
+      level: "info",
+      message: "Gateway auth token configured."
+    });
+  }
+
+  const parsedDisableDeviceAuth = parseBooleanLike(defaults.disableDeviceAuth);
+  if (parsedDisableDeviceAuth !== null) {
+    normalized.disableDeviceAuth = parsedDisableDeviceAuth;
+  }
+
+  const waitTimeoutMs =
+    typeof defaults.waitTimeoutMs === "number" && Number.isFinite(defaults.waitTimeoutMs)
+      ? Math.floor(defaults.waitTimeoutMs)
+      : typeof defaults.waitTimeoutMs === "string"
+      ? Number.parseInt(defaults.waitTimeoutMs.trim(), 10)
+      : NaN;
+  if (Number.isFinite(waitTimeoutMs) && waitTimeoutMs > 0) {
+    normalized.waitTimeoutMs = waitTimeoutMs;
+  }
+
+  const timeoutSec =
+    typeof defaults.timeoutSec === "number" && Number.isFinite(defaults.timeoutSec)
+      ? Math.floor(defaults.timeoutSec)
+      : typeof defaults.timeoutSec === "string"
+      ? Number.parseInt(defaults.timeoutSec.trim(), 10)
+      : NaN;
+  if (Number.isFinite(timeoutSec) && timeoutSec > 0) {
+    normalized.timeoutSec = timeoutSec;
+  }
+
+  const sessionKeyStrategy = nonEmptyTrimmedString(defaults.sessionKeyStrategy);
+  if (sessionKeyStrategy === "fixed" || sessionKeyStrategy === "issue" || sessionKeyStrategy === "run") {
+    normalized.sessionKeyStrategy = sessionKeyStrategy;
+  }
+
+  const sessionKey = nonEmptyTrimmedString(defaults.sessionKey);
+  if (sessionKey) normalized.sessionKey = sessionKey;
+
+  const role = nonEmptyTrimmedString(defaults.role);
+  if (role) normalized.role = role;
+
+  if (Array.isArray(defaults.scopes)) {
+    const scopes = defaults.scopes
+      .filter((entry): entry is string => typeof entry === "string")
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+    if (scopes.length > 0) normalized.scopes = scopes;
+  }
+
+  if (isPlainObject(defaults.payloadTemplate)) {
+    normalized.payloadTemplate = defaults.payloadTemplate;
   }
 
   return { normalized, diagnostics, fatalErrors };
@@ -1953,7 +2120,11 @@ export function accessRoutes(
         throw badRequest(joinDefaults.fatalErrors.join("; "));
       }
 
-      if (requestType === "agent" && adapterType === "openclaw_gateway") {
+      if (requestType === "agent" && (adapterType === "openclaw_gateway" || adapterType === "ironclaw_gateway")) {
+        const summarizeFn =
+          adapterType === "ironclaw_gateway"
+            ? summarizeIronClawGatewayDefaultsForLog
+            : summarizeOpenClawGatewayDefaultsForLog;
         logger.info(
           {
             inviteId: invite.id,
@@ -1961,11 +2132,9 @@ export function accessRoutes(
               code: diag.code,
               level: diag.level
             })),
-            normalizedAgentDefaults: summarizeOpenClawGatewayDefaultsForLog(
-              joinDefaults.normalized
-            )
+            normalizedAgentDefaults: summarizeFn(joinDefaults.normalized)
           },
-          "invite accept normalized OpenClaw gateway defaults"
+          `invite accept normalized ${adapterType} defaults`
         );
       }
 
@@ -2054,7 +2223,7 @@ export function accessRoutes(
       if (
         inviteAlreadyAccepted &&
         requestType === "agent" &&
-        adapterType === "openclaw_gateway" &&
+        (adapterType === "openclaw_gateway" || adapterType === "ironclaw_gateway") &&
         created.status === "approved" &&
         created.createdAgentId
       ) {
@@ -2090,37 +2259,32 @@ export function accessRoutes(
         });
       }
 
-      if (requestType === "agent" && adapterType === "openclaw_gateway") {
-        const expectedDefaults = summarizeOpenClawGatewayDefaultsForLog(
-          joinDefaults.normalized
-        );
-        const persistedDefaults = summarizeOpenClawGatewayDefaultsForLog(
-          created.agentDefaultsPayload
-        );
+      if (requestType === "agent" && (adapterType === "openclaw_gateway" || adapterType === "ironclaw_gateway")) {
+        const summarizeFn =
+          adapterType === "ironclaw_gateway"
+            ? summarizeIronClawGatewayDefaultsForLog
+            : summarizeOpenClawGatewayDefaultsForLog;
+        const expectedDefaults = summarizeFn(joinDefaults.normalized);
+        const persistedDefaults = summarizeFn(created.agentDefaultsPayload);
         const missingPersistedFields: string[] = [];
 
         if (expectedDefaults.url && !persistedDefaults.url)
           missingPersistedFields.push("url");
-        if (
-          expectedDefaults.paperclipApiUrl &&
-          !persistedDefaults.paperclipApiUrl
-        ) {
-          missingPersistedFields.push("paperclipApiUrl");
-        }
-        if (expectedDefaults.gatewayToken && !persistedDefaults.gatewayToken) {
-          missingPersistedFields.push("headers.x-openclaw-token");
-        }
-        if (
-          expectedDefaults.devicePrivateKeyPem &&
-          !persistedDefaults.devicePrivateKeyPem
-        ) {
-          missingPersistedFields.push("devicePrivateKeyPem");
-        }
-        if (
-          expectedDefaults.headerKeys.length > 0 &&
-          persistedDefaults.headerKeys.length === 0
-        ) {
-          missingPersistedFields.push("headers");
+        if (adapterType === "ironclaw_gateway") {
+          const ic = expectedDefaults as ReturnType<typeof summarizeIronClawGatewayDefaultsForLog>;
+          const icP = persistedDefaults as ReturnType<typeof summarizeIronClawGatewayDefaultsForLog>;
+          if (ic.authToken && !icP.authToken) missingPersistedFields.push("authToken");
+        } else {
+          const oc = expectedDefaults as ReturnType<typeof summarizeOpenClawGatewayDefaultsForLog>;
+          const ocP = persistedDefaults as ReturnType<typeof summarizeOpenClawGatewayDefaultsForLog>;
+          if (oc.paperclipApiUrl && !ocP.paperclipApiUrl)
+            missingPersistedFields.push("paperclipApiUrl");
+          if (oc.gatewayToken && !ocP.gatewayToken)
+            missingPersistedFields.push("headers.x-openclaw-token");
+          if (oc.devicePrivateKeyPem && !ocP.devicePrivateKeyPem)
+            missingPersistedFields.push("devicePrivateKeyPem");
+          if (oc.headerKeys.length > 0 && ocP.headerKeys.length === 0)
+            missingPersistedFields.push("headers");
         }
 
         logger.info(
@@ -2137,7 +2301,7 @@ export function accessRoutes(
               hint: diag.hint ?? null
             }))
           },
-          "invite accept persisted OpenClaw gateway join request"
+          `invite accept persisted ${adapterType} join request`
         );
 
         if (missingPersistedFields.length > 0) {
@@ -2147,7 +2311,7 @@ export function accessRoutes(
               joinRequestId: created.id,
               missingPersistedFields
             },
-            "invite accept detected missing persisted OpenClaw gateway defaults"
+            `invite accept detected missing persisted ${adapterType} defaults`
           );
         }
       }

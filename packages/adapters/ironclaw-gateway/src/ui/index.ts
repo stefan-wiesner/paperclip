@@ -1,8 +1,8 @@
 export {
-  parseOpenClawGatewayStdoutLine,
-  parseOpenClawGatewayStdoutLine as parseIronClawGatewayStdoutLine,
+  parseIronClawGatewayStdoutLine,
+  parseIronClawGatewayStdoutLine as parseOpenClawGatewayStdoutLine,
 } from "./parse-stdout.js";
 export {
-  buildOpenClawGatewayConfig,
-  buildOpenClawGatewayConfig as buildIronClawGatewayConfig,
+  buildIronClawGatewayConfig,
+  buildIronClawGatewayConfig as buildOpenClawGatewayConfig,
 } from "./build-config.js";

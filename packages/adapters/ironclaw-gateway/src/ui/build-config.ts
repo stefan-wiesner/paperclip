@@ -1,6 +1,6 @@
 import type { CreateConfigValues } from "@paperclipai/adapter-utils";
 
-export function buildOpenClawGatewayConfig(v: CreateConfigValues): Record<string, unknown> {
+export function buildIronClawGatewayConfig(v: CreateConfigValues): Record<string, unknown> {
   const ac: Record<string, unknown> = {};
   if (v.url) ac.url = v.url;
   ac.timeoutSec = 120;
@@ -10,3 +10,5 @@ export function buildOpenClawGatewayConfig(v: CreateConfigValues): Record<string
   ac.scopes = ["operator.admin"];
   return ac;
 }
+
+export const buildOpenClawGatewayConfig = buildIronClawGatewayConfig;

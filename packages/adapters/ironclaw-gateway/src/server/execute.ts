@@ -82,7 +82,7 @@ const DEFAULT_CLIENT_VERSION = "paperclip";
 const DEFAULT_ROLE = "operator";
 
 const SENSITIVE_LOG_KEY_PATTERN =
-  /(^|[_-])(auth|authorization|token|secret|password|api[_-]?key|private[_-]?key)([_-]|$)|^x-openclaw-(auth|token)$/i;
+  /(^|[_-])(auth|authorization|token|secret|password|api[_-]?key|private[_-]?key)([_-]|$)|^x-(?:ironclaw|openclaw)-(auth|token)$/i;
 
 const ED25519_SPKI_PREFIX = Buffer.from("302a300506032b6570032100", "hex");
 
@@ -215,10 +215,13 @@ function resolveAuthToken(config: Record<string, unknown>, headers: Record<strin
   const explicit = nonEmpty(config.authToken) ?? nonEmpty(config.token);
   if (explicit) return explicit;
 
-  const tokenHeader = headerMapGetIgnoreCase(headers, "x-openclaw-token");
+  const tokenHeader =
+    headerMapGetIgnoreCase(headers, "x-ironclaw-token") ??
+    headerMapGetIgnoreCase(headers, "x-openclaw-token");
   if (nonEmpty(tokenHeader)) return nonEmpty(tokenHeader);
 
   const authHeader =
+    headerMapGetIgnoreCase(headers, "x-ironclaw-auth") ??
     headerMapGetIgnoreCase(headers, "x-openclaw-auth") ??
     headerMapGetIgnoreCase(headers, "authorization");
   return tokenFromAuthHeader(authHeader);
@@ -332,7 +335,7 @@ function buildPaperclipEnvForWake(ctx: AdapterExecutionContext, wakePayload: Wak
 }
 
 function buildWakeText(payload: WakePayload, paperclipEnv: Record<string, string>): string {
-  const claimedApiKeyPath = "~/.openclaw/workspace/paperclip-claimed-api-key.json";
+  const claimedApiKeyPath = "~/.ironclaw/workspace/paperclip-claimed-api-key.json";
   const orderedKeys = [
     "PAPERCLIP_RUN_ID",
     "PAPERCLIP_AGENT_ID",
@@ -575,7 +578,7 @@ class GatewayWsClient {
 
     ws.on("error", (err) => {
       const message = err instanceof Error ? err.message : String(err);
-      void this.opts.onLog("stderr", `[openclaw-gateway] websocket error: ${message}\n`);
+      void this.opts.onLog("stderr", `[ironclaw-gateway] websocket error: ${message}\n`);
     });
 
     await withTimeout(
@@ -754,7 +757,7 @@ async function autoApproveDevicePairing(params: {
   try {
     await params.onLog(
       "stdout",
-      "[openclaw-gateway] pairing required; attempting automatic pairing approval via gateway methods\n",
+      "[ironclaw-gateway] pairing required; attempting automatic pairing approval via gateway methods\n",
     );
 
     await client.connect(
@@ -858,8 +861,8 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       exitCode: 1,
       signal: null,
       timedOut: false,
-      errorMessage: "OpenClaw gateway adapter missing url",
-      errorCode: "openclaw_gateway_url_missing",
+      errorMessage: "IronClaw gateway adapter missing url",
+      errorCode: "ironclaw_gateway_url_missing",
     };
   }
 
@@ -870,7 +873,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       signal: null,
       timedOut: false,
       errorMessage: `Invalid gateway URL: ${urlValue}`,
-      errorCode: "openclaw_gateway_url_invalid",
+      errorCode: "ironclaw_gateway_url_invalid",
     };
   }
 
@@ -880,7 +883,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       signal: null,
       timedOut: false,
       errorMessage: `Unsupported gateway URL protocol: ${parsedUrl.protocol}`,
-      errorCode: "openclaw_gateway_url_protocol",
+      errorCode: "ironclaw_gateway_url_protocol",
     };
   }
 
@@ -902,7 +905,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   }
 
   // IronClaw requires Origin header for WebSocket CSRF protection.
-  // Use http:// or https:// as the scheme (not ws://) since IronClaw expects HTTP origins.
+  // Use the matching HTTP scheme since IronClaw expects HTTP origins.
   if (!headerMapHasIgnoreCase(headers, "origin")) {
     const httpScheme = parsedUrl.protocol === "wss:" ? "https:" : "http:";
     const gatewayOrigin = `${httpScheme}//${parsedUrl.host}`;
@@ -952,7 +955,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
 
   if (ctx.onMeta) {
     await ctx.onMeta({
-      adapterType: "openclaw_gateway",
+      adapterType: "ironclaw_gateway",
       command: "gateway",
       commandArgs: ["ws", parsedUrl.toString(), "agent"],
       context: ctx.context,
@@ -962,23 +965,23 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   const outboundHeaderKeys = Object.keys(headers).sort();
   await ctx.onLog(
     "stdout",
-    `[openclaw-gateway] outbound headers (redacted): ${stringifyForLog(redactForLog(headers), 4_000)}\n`,
+    `[ironclaw-gateway] outbound headers (redacted): ${stringifyForLog(redactForLog(headers), 4_000)}\n`,
   );
   await ctx.onLog(
     "stdout",
-    `[openclaw-gateway] outbound payload (redacted): ${stringifyForLog(redactForLog(agentParams), 12_000)}\n`,
+    `[ironclaw-gateway] outbound payload (redacted): ${stringifyForLog(redactForLog(agentParams), 12_000)}\n`,
   );
-  await ctx.onLog("stdout", `[openclaw-gateway] outbound header keys: ${outboundHeaderKeys.join(", ")}\n`);
+  await ctx.onLog("stdout", `[ironclaw-gateway] outbound header keys: ${outboundHeaderKeys.join(", ")}\n`);
   if (transportHint) {
     await ctx.onLog(
       "stdout",
-      `[openclaw-gateway] ignoring streamTransport=${transportHint}; gateway adapter always uses websocket protocol\n`,
+      `[ironclaw-gateway] ignoring streamTransport=${transportHint}; gateway adapter always uses websocket protocol\n`,
     );
   }
   if (parsedUrl.protocol === "ws:" && !isLoopbackHost(parsedUrl.hostname)) {
     await ctx.onLog(
       "stdout",
-      "[openclaw-gateway] warning: using plaintext ws:// to a non-loopback host; prefer wss:// for remote endpoints\n",
+      "[ironclaw-gateway] warning: using plaintext websocket transport to a non-loopback host; prefer secure websocket transport for remote endpoints\n",
     );
   }
 
@@ -997,7 +1000,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
         if (frame.event === "shutdown") {
           await ctx.onLog(
             "stdout",
-            `[openclaw-gateway] gateway shutdown notice: ${stringifyForLog(frame.payload ?? {}, 2_000)}\n`,
+            `[ironclaw-gateway] gateway shutdown notice: ${stringifyForLog(frame.payload ?? {}, 2_000)}\n`,
           );
         }
         return;
@@ -1013,7 +1016,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       const data = asRecord(payload.data) ?? {};
       await ctx.onLog(
         "stdout",
-        `[openclaw-gateway:event] run=${runId} stream=${stream} data=${stringifyForLog(data, 8_000)}\n`,
+        `[ironclaw-gateway:event] run=${runId} stream=${stream} data=${stringifyForLog(data, 8_000)}\n`,
       );
 
       if (stream === "assistant") {
@@ -1052,13 +1055,13 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       if (deviceIdentity) {
         await ctx.onLog(
           "stdout",
-          `[openclaw-gateway] device auth enabled keySource=${deviceIdentity.source} deviceId=${deviceIdentity.deviceId}\n`,
+          `[ironclaw-gateway] device auth enabled keySource=${deviceIdentity.source} deviceId=${deviceIdentity.deviceId}\n`,
         );
       } else {
-        await ctx.onLog("stdout", "[openclaw-gateway] device auth disabled\n");
+        await ctx.onLog("stdout", "[ironclaw-gateway] device auth disabled\n");
       }
 
-      await ctx.onLog("stdout", `[openclaw-gateway] connecting to ${parsedUrl.toString()}\n`);
+      await ctx.onLog("stdout", `[ironclaw-gateway] connecting to ${parsedUrl.toString()}\n`);
 
       const hello = await client.connect((nonce) => {
         const signedAtMs = Date.now();
@@ -1110,7 +1113,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
 
       await ctx.onLog(
         "stdout",
-        `[openclaw-gateway] connected protocol=${asNumber(asRecord(hello)?.protocol, PROTOCOL_VERSION)}\n`,
+        `[ironclaw-gateway] connected protocol=${asNumber(asRecord(hello)?.protocol, PROTOCOL_VERSION)}\n`,
       );
 
       const acceptedPayload = await client.request<Record<string, unknown>>("agent", agentParams, {
@@ -1125,18 +1128,18 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
 
       await ctx.onLog(
         "stdout",
-        `[openclaw-gateway] agent accepted runId=${acceptedRunId} status=${acceptedStatus || "unknown"}\n`,
+        `[ironclaw-gateway] agent accepted runId=${acceptedRunId} status=${acceptedStatus || "unknown"}\n`,
       );
 
       if (acceptedStatus === "error") {
         const errorMessage =
-          nonEmpty(acceptedPayload?.summary) ?? lifecycleError ?? "OpenClaw gateway agent request failed";
+          nonEmpty(acceptedPayload?.summary) ?? lifecycleError ?? "IronClaw gateway agent request failed";
         return {
           exitCode: 1,
           signal: null,
           timedOut: false,
           errorMessage,
-          errorCode: "openclaw_gateway_agent_error",
+          errorCode: "ironclaw_gateway_agent_error",
           resultJson: acceptedPayload,
         };
       }
@@ -1156,8 +1159,8 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
             exitCode: 1,
             signal: null,
             timedOut: true,
-            errorMessage: `OpenClaw gateway run timed out after ${waitTimeoutMs}ms`,
-            errorCode: "openclaw_gateway_wait_timeout",
+            errorMessage: `IronClaw gateway run timed out after ${waitTimeoutMs}ms`,
+            errorCode: "ironclaw_gateway_wait_timeout",
             resultJson: waitPayload,
           };
         }
@@ -1170,8 +1173,8 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
             errorMessage:
               nonEmpty(waitPayload?.error) ??
               lifecycleError ??
-              "OpenClaw gateway run failed",
-            errorCode: "openclaw_gateway_wait_error",
+              "IronClaw gateway run failed",
+            errorCode: "ironclaw_gateway_wait_error",
             resultJson: waitPayload,
           };
         }
@@ -1181,8 +1184,8 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
             exitCode: 1,
             signal: null,
             timedOut: false,
-            errorMessage: `Unexpected OpenClaw gateway agent.wait status: ${waitStatus}`,
-            errorCode: "openclaw_gateway_wait_status_unexpected",
+            errorMessage: `Unexpected IronClaw gateway agent.wait status: ${waitStatus}`,
+            errorCode: "ironclaw_gateway_wait_status_unexpected",
             resultJson: waitPayload,
           };
         }
@@ -1199,13 +1202,13 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       const meta = asRecord(asRecord(acceptedPayload?.result)?.meta) ?? asRecord(acceptedPayload?.meta);
       const agentMeta = asRecord(meta?.agentMeta);
       const usage = parseUsage(agentMeta?.usage ?? meta?.usage);
-      const provider = nonEmpty(agentMeta?.provider) ?? nonEmpty(meta?.provider) ?? "openclaw";
+      const provider = nonEmpty(agentMeta?.provider) ?? nonEmpty(meta?.provider) ?? "ironclaw";
       const model = nonEmpty(agentMeta?.model) ?? nonEmpty(meta?.model) ?? null;
       const costUsd = asNumber(agentMeta?.costUsd ?? meta?.costUsd, 0);
 
       await ctx.onLog(
         "stdout",
-        `[openclaw-gateway] run completed runId=${Array.from(trackedRunIds).join(",")} status=ok\n`,
+        `[ironclaw-gateway] run completed runId=${Array.from(trackedRunIds).join(",")} status=ok\n`,
       );
 
       return {
@@ -1251,21 +1254,21 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
         if (pairResult.ok) {
           await ctx.onLog(
             "stdout",
-            `[openclaw-gateway] auto-approved pairing request ${pairResult.requestId}; retrying\n`,
+            `[ironclaw-gateway] auto-approved pairing request ${pairResult.requestId}; retrying\n`,
           );
           continue;
         }
         await ctx.onLog(
           "stderr",
-          `[openclaw-gateway] auto-pairing failed: ${pairResult.reason}\n`,
+          `[ironclaw-gateway] auto-pairing failed: ${pairResult.reason}\n`,
         );
       }
 
       const detailedMessage = pairingRequired
-        ? `${message}. Approve the pending device in OpenClaw (for example: openclaw devices approve --latest --url <gateway-ws-url> --token <gateway-token>) and retry. Ensure this agent has a persisted adapterConfig.devicePrivateKeyPem so approvals are reused.`
+        ? `${message}. Approve the pending device in IronClaw (for example: ironclaw devices approve --latest --url <gateway-ws-url> --token <gateway-token>) and retry. Ensure this agent has a persisted adapterConfig.devicePrivateKeyPem so approvals are reused.`
         : message;
 
-      await ctx.onLog("stderr", `[openclaw-gateway] request failed: ${detailedMessage}\n`);
+      await ctx.onLog("stderr", `[ironclaw-gateway] request failed: ${detailedMessage}\n`);
 
       return {
         exitCode: 1,
@@ -1273,10 +1276,10 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
         timedOut,
         errorMessage: detailedMessage,
         errorCode: timedOut
-          ? "openclaw_gateway_timeout"
+          ? "ironclaw_gateway_timeout"
           : pairingRequired
-            ? "openclaw_gateway_pairing_required"
-            : "openclaw_gateway_request_failed",
+            ? "ironclaw_gateway_pairing_required"
+            : "ironclaw_gateway_request_failed",
         resultJson: asRecord(latestResultPayload),
       };
     } finally {
