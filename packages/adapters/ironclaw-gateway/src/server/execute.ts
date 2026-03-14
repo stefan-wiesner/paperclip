@@ -334,8 +334,20 @@ function buildPaperclipEnvForWake(ctx: AdapterExecutionContext, wakePayload: Wak
   return paperclipEnv;
 }
 
-function buildWakeText(payload: WakePayload, paperclipEnv: Record<string, string>): string {
-  const claimedApiKeyPath = "~/.ironclaw/workspace/paperclip-claimed-api-key.json";
+function resolveClaimedApiKeyPath(value: unknown): string {
+  const configuredPath = nonEmpty(value);
+  if (configuredPath && configuredPath.startsWith("/")) {
+    return configuredPath;
+  }
+  const home = process.env.HOME?.trim();
+  if (!home || !home.startsWith("/")) {
+    return "~/.ironclaw/workspace/paperclip-claimed-api-key.json";
+  }
+  return `${home.replace(/\/+$/g, "")}/.ironclaw/workspace/paperclip-claimed-api-key.json`;
+}
+
+function buildWakeText(payload: WakePayload, paperclipEnv: Record<string, string>, claimedApiKeyPathValue: unknown): string {
+  const claimedApiKeyPath = resolveClaimedApiKeyPath(claimedApiKeyPathValue);
   const orderedKeys = [
     "PAPERCLIP_RUN_ID",
     "PAPERCLIP_AGENT_ID",
@@ -368,7 +380,9 @@ function buildWakeText(payload: WakePayload, paperclipEnv: Record<string, string
     ...envLines,
     `PAPERCLIP_API_KEY=<token from ${claimedApiKeyPath}>`,
     "",
-    `Load PAPERCLIP_API_KEY from ${claimedApiKeyPath} (the token you saved after claim-api-key).`,
+    `Read the JSON file directly from the filesystem at ${claimedApiKeyPath}.`,
+    "Do not use memory tools, memory search, or knowledge-base lookup for this step.",
+    "Set PAPERCLIP_API_KEY to the token field from that JSON file.",
     "",
     `api_base=${apiBaseHint}`,
     `task_id=${payload.taskId ?? ""}`,
@@ -922,7 +936,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
 
   const wakePayload = buildWakePayload(ctx);
   const paperclipEnv = buildPaperclipEnvForWake(ctx, wakePayload);
-  const wakeText = buildWakeText(wakePayload, paperclipEnv);
+  const wakeText = buildWakeText(wakePayload, paperclipEnv, ctx.config.paperclipApiKeyPath);
 
   const sessionKeyStrategy = normalizeSessionKeyStrategy(ctx.config.sessionKeyStrategy);
   const configuredSessionKey = nonEmpty(ctx.config.sessionKey);
