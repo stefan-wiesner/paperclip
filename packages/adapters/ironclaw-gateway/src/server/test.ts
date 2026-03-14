@@ -52,12 +52,20 @@ function headerMapGetIgnoreCase(headers: Record<string, string>, key: string): s
   return match ? match[1] : null;
 }
 
+function headerMapHasIgnoreCase(headers: Record<string, string>, key: string): boolean {
+  return Object.keys(headers).some((entryKey) => entryKey.toLowerCase() === key.toLowerCase());
+}
+
 function tokenFromAuthHeader(rawHeader: string | null): string | null {
   if (!rawHeader) return null;
   const trimmed = rawHeader.trim();
   if (!trimmed) return null;
   const match = trimmed.match(/^bearer\s+(.+)$/i);
   return match ? nonEmpty(match[1]) : trimmed;
+}
+
+function toAuthorizationHeaderValue(token: string): string {
+  return /^bearer\s+/i.test(token) ? token : `Bearer ${token}`;
 }
 
 function resolveAuthToken(config: Record<string, unknown>, headers: Record<string, string>): string | null {
@@ -254,6 +262,15 @@ export async function testEnvironment(
   const password = nonEmpty(config.password);
   const role = nonEmpty(config.role) ?? "operator";
   const scopes = toStringArray(config.scopes);
+
+  if (authToken && !headerMapHasIgnoreCase(headers, "authorization")) {
+    headers.authorization = toAuthorizationHeaderValue(authToken);
+  }
+
+  if (url && !headerMapGetIgnoreCase(headers, "origin")) {
+    const httpScheme = url.protocol === "wss:" ? "https:" : "http:";
+    headers.origin = `${httpScheme}//${url.host}`;
+  }
 
   if (authToken || password) {
     checks.push({

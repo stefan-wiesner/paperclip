@@ -42,12 +42,25 @@ function buildFixtureAuthValue(): string {
   return ["fixture", "auth", "value"].join("-");
 }
 
-async function createMockGatewayServer() {
+async function createMockGatewayServer(opts?: { requireOrigin?: boolean; requireAuthorization?: boolean }) {
   const wss = new WebSocketServer({ host: "127.0.0.1", port: 0 });
 
   let agentPayload: Record<string, unknown> | null = null;
+  let lastOrigin: string | null = null;
+  let lastAuthorization: string | null = null;
 
-  wss.on("connection", (socket) => {
+  wss.on("connection", (socket, request) => {
+    lastOrigin = typeof request.headers.origin === "string" ? request.headers.origin : null;
+    lastAuthorization =
+      typeof request.headers.authorization === "string" ? request.headers.authorization : null;
+    if (opts?.requireOrigin && !lastOrigin) {
+      socket.close();
+      return;
+    }
+    if (opts?.requireAuthorization && !lastAuthorization) {
+      socket.close();
+      return;
+    }
     socket.send(
       JSON.stringify({
         type: "event",
@@ -149,6 +162,8 @@ async function createMockGatewayServer() {
   return {
     url: `ws://127.0.0.1:${address.port}`,
     getAgentPayload: () => agentPayload,
+    getLastOrigin: () => lastOrigin,
+    getLastAuthorization: () => lastAuthorization,
     close: async () => {
       await new Promise<void>((resolve) => wss.close(() => resolve()));
     },
@@ -294,5 +309,32 @@ describe("ironclaw gateway testEnvironment", () => {
 
     expect(result.status).toBe("fail");
     expect(result.checks.some((check) => check.code === "ironclaw_gateway_url_missing")).toBe(true);
+  });
+
+  it("adds a matching origin header for loopback gateway probes", async () => {
+    const gateway = await createMockGatewayServer({ requireOrigin: true });
+
+    try {
+      const result = await testEnvironment({
+        companyId: "company-123",
+        adapterType: "ironclaw_gateway",
+        config: {
+          url: gateway.url,
+          authToken: buildFixtureAuthValue(),
+        },
+      });
+
+      const expectedOrigin = (() => {
+        const parsed = new URL(gateway.url);
+        const protocol = parsed.protocol === "wss:" ? "https:" : "http:";
+        return `${protocol}//${parsed.host}`;
+      })();
+
+      expect(result.status).toBe("pass");
+      expect(result.checks.some((check) => check.code === "ironclaw_gateway_probe_ok")).toBe(true);
+      expect(gateway.getLastOrigin()).toBe(expectedOrigin);
+    } finally {
+      await gateway.close();
+    }
   });
 });
