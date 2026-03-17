@@ -3,12 +3,14 @@ import {
   execute as claudeExecute,
   testEnvironment as claudeTestEnvironment,
   sessionCodec as claudeSessionCodec,
+  getQuotaWindows as claudeGetQuotaWindows,
 } from "@paperclipai/adapter-claude-local/server";
 import { agentConfigurationDoc as claudeAgentConfigurationDoc, models as claudeModels } from "@paperclipai/adapter-claude-local";
 import {
   execute as codexExecute,
   testEnvironment as codexTestEnvironment,
   sessionCodec as codexSessionCodec,
+  getQuotaWindows as codexGetQuotaWindows,
 } from "@paperclipai/adapter-codex-local/server";
 import { agentConfigurationDoc as codexAgentConfigurationDoc, models as codexModels } from "@paperclipai/adapter-codex-local";
 import {
@@ -67,6 +69,15 @@ import {
 import {
   agentConfigurationDoc as piAgentConfigurationDoc,
 } from "@paperclipai/adapter-pi-local";
+import {
+  execute as hermesExecute,
+  testEnvironment as hermesTestEnvironment,
+  sessionCodec as hermesSessionCodec,
+} from "hermes-paperclip-adapter/server";
+import {
+  agentConfigurationDoc as hermesAgentConfigurationDoc,
+  models as hermesModels,
+} from "hermes-paperclip-adapter";
 import { processAdapter } from "./process/index.js";
 import { httpAdapter } from "./http/index.js";
 
@@ -78,6 +89,7 @@ const claudeLocalAdapter: ServerAdapterModule = {
   models: claudeModels,
   supportsLocalAgentJwt: true,
   agentConfigurationDoc: claudeAgentConfigurationDoc,
+  getQuotaWindows: claudeGetQuotaWindows,
 };
 
 const codexLocalAdapter: ServerAdapterModule = {
@@ -89,6 +101,7 @@ const codexLocalAdapter: ServerAdapterModule = {
   listModels: listCodexModels,
   supportsLocalAgentJwt: true,
   agentConfigurationDoc: codexAgentConfigurationDoc,
+  getQuotaWindows: codexGetQuotaWindows,
 };
 
 const cursorLocalAdapter: ServerAdapterModule = {
@@ -161,6 +174,16 @@ const piLocalAdapter: ServerAdapterModule = {
   agentConfigurationDoc: piAgentConfigurationDoc,
 };
 
+const hermesLocalAdapter: ServerAdapterModule = {
+  type: "hermes_local",
+  execute: hermesExecute,
+  testEnvironment: hermesTestEnvironment,
+  sessionCodec: hermesSessionCodec,
+  models: hermesModels,
+  supportsLocalAgentJwt: true,
+  agentConfigurationDoc: hermesAgentConfigurationDoc,
+};
+
 const adaptersByType = new Map<string, ServerAdapterModule>(
   [
     claudeLocalAdapter,
@@ -172,6 +195,7 @@ const adaptersByType = new Map<string, ServerAdapterModule>(
     ironclawGatewayAdapter,
     nemoclawGatewayAdapter,
     openclawGatewayAdapter,
+    hermesLocalAdapter,
     processAdapter,
     httpAdapter,
   ].map((a) => [a.type, a]),
