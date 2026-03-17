@@ -479,6 +479,9 @@ importers:
       '@paperclipai/adapter-ironclaw-gateway':
         specifier: workspace:*
         version: link:../packages/adapters/ironclaw-gateway
+      '@paperclipai/adapter-openclaw-gateway':
+        specifier: workspace:*
+        version: link:../packages/adapters/openclaw-gateway
       '@paperclipai/adapter-opencode-local':
         specifier: workspace:*
         version: link:../packages/adapters/opencode-local

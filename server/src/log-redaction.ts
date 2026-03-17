@@ -1,6 +1,10 @@
 import os from "node:os";
 
 export const CURRENT_USER_REDACTION_TOKEN = "[]";
+export const SENSITIVE_VALUE_REDACTION_TOKEN = "[redacted]";
+
+const SENSITIVE_LOG_KEY_PATTERN =
+  /(^|[_-])(auth|authorization|token|secret|password|api[_-]?key|private[_-]?key|cookie|set-cookie)([_-]|$)|^x-(?:ironclaw|openclaw)-(auth|token)$/i;
 
 interface CurrentUserRedactionOptions {
   replacement?: string;
@@ -22,6 +26,10 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function isSensitiveLogKey(key: string) {
+  return SENSITIVE_LOG_KEY_PATTERN.test(key.trim());
 }
 
 function uniqueNonEmpty(values: Array<string | null | undefined>) {
@@ -97,6 +105,25 @@ function resolveCurrentUserCandidates(opts?: CurrentUserRedactionOptions) {
   return { userNames, homeDirs, replacement };
 }
 
+function redactSensitiveEntry(value: unknown, keyPath: string[] = []): unknown {
+  const currentKey = keyPath[keyPath.length - 1] ?? "";
+  if (typeof value === "string") {
+    return isSensitiveLogKey(currentKey) ? SENSITIVE_VALUE_REDACTION_TOKEN : value;
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => redactSensitiveEntry(entry, keyPath));
+  }
+  if (!isPlainObject(value)) {
+    return value;
+  }
+
+  const redacted: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    redacted[key] = redactSensitiveEntry(entry, [...keyPath, key]);
+  }
+  return redacted;
+}
+
 export function redactCurrentUserText(input: string, opts?: CurrentUserRedactionOptions) {
   if (!input) return input;
 
@@ -135,4 +162,8 @@ export function redactCurrentUserValue<T>(value: T, opts?: CurrentUserRedactionO
     redacted[key] = redactCurrentUserValue(entry, opts);
   }
   return redacted as T;
+}
+
+export function redactSensitiveLogValue<T>(value: T): T {
+  return redactSensitiveEntry(value) as T;
 }

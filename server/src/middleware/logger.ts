@@ -4,6 +4,7 @@ import pino from "pino";
 import { pinoHttp } from "pino-http";
 import { readConfigFile } from "../config-file.js";
 import { resolveDefaultLogsDir, resolveHomeAwarePath } from "../home-paths.js";
+import { redactSensitiveLogValue } from "../log-redaction.js";
 
 function resolveServerLogDir(): string {
   const envOverride = process.env.PAPERCLIP_LOG_DIR?.trim();
@@ -26,8 +27,26 @@ const sharedOpts = {
   singleLine: true,
 };
 
+export function serializeReqForLogging(req: unknown) {
+  const serialized = pino.stdSerializers.req(req as Parameters<typeof pino.stdSerializers.req>[0]);
+  if (!serialized) return serialized;
+  return {
+    ...serialized,
+    headers: serialized.headers ? redactSensitiveLogValue(serialized.headers) : serialized.headers,
+  };
+}
+
+function redactLogProps(props: Record<string, unknown>) {
+  return redactSensitiveLogValue(props);
+}
+
 export const logger = pino({
   level: "debug",
+  serializers: {
+    err: pino.stdSerializers.err,
+    req: serializeReqForLogging,
+    res: pino.stdSerializers.res,
+  },
 }, pino.transport({
   targets: [
     {
@@ -62,12 +81,12 @@ export const httpLogger = pinoHttp({
     if (res.statusCode >= 400) {
       const ctx = (res as any).__errorContext;
       if (ctx) {
-        return {
+        return redactLogProps({
           errorContext: ctx.error,
           reqBody: ctx.reqBody,
           reqParams: ctx.reqParams,
           reqQuery: ctx.reqQuery,
-        };
+        });
       }
       const props: Record<string, unknown> = {};
       const { body, params, query } = req as any;
@@ -83,7 +102,7 @@ export const httpLogger = pinoHttp({
       if ((req as any).route?.path) {
         props.routePath = (req as any).route.path;
       }
-      return props;
+      return redactLogProps(props);
     }
     return {};
   },

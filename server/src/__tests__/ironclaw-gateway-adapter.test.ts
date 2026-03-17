@@ -299,6 +299,142 @@ describe("ironclaw gateway adapter execute", () => {
   });
 });
 
+describe("ironclaw gateway adapter all5xx outcome", () => {
+  it("returns exitCode=1 when all HTTP tool calls returned 5xx", async () => {
+    const wss = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+
+    wss.on("connection", (socket) => {
+      socket.send(
+        JSON.stringify({
+          type: "event",
+          event: "connect.challenge",
+          payload: { nonce: "nonce-123" },
+        }),
+      );
+
+      socket.on("message", (raw) => {
+        const text = Buffer.isBuffer(raw) ? raw.toString("utf8") : String(raw);
+        const frame = JSON.parse(text) as { type: string; id: string; method: string; params?: Record<string, unknown> };
+        if (frame.type !== "req") return;
+
+        if (frame.method === "connect") {
+          socket.send(JSON.stringify({ type: "res", id: frame.id, ok: true, payload: { protocol: 3, server: { version: "test", connId: "conn-1" } } }));
+          return;
+        }
+
+        if (frame.method === "agent") {
+          const runId = typeof frame.params?.idempotencyKey === "string" ? frame.params.idempotencyKey : "run-5xx";
+          socket.send(JSON.stringify({ type: "res", id: frame.id, ok: true, payload: { runId, status: "accepted", acceptedAt: Date.now(), meta: { provider: "ironclaw" } } }));
+          return;
+        }
+
+        if (frame.method === "agent.wait") {
+          socket.send(
+            JSON.stringify({
+              type: "res",
+              id: frame.id,
+              ok: true,
+              payload: {
+                runId: frame.params?.runId,
+                status: "ok",
+                startedAt: 1,
+                endedAt: 2,
+                meta: { provider: "ironclaw" },
+                toolDiagnostics: {
+                  http: {
+                    count: 2,
+                    statuses: [500, 503],
+                    all5xx: true,
+                  },
+                },
+              },
+            }),
+          );
+        }
+      });
+    });
+
+    await new Promise<void>((resolve) => { wss.once("listening", () => resolve()); });
+    const address = wss.address();
+    if (!address || typeof address === "string") throw new Error("Failed to get test server address");
+    const url = `ws://127.0.0.1:${address.port}`;
+
+    const stderrLogs: string[] = [];
+    try {
+      const result = await execute(
+        buildContext(
+          { url, authToken: buildFixtureAuthValue(), waitTimeoutMs: 2000 },
+          { onLog: async (stream, chunk) => { if (stream === "stderr") stderrLogs.push(chunk); } },
+        ),
+      );
+
+      expect(result.exitCode).toBe(1);
+      expect(result.errorCode).toBe("ironclaw_gateway_http_5xx");
+      expect(result.errorMessage).toContain("5xx");
+      expect(result.errorMessage).toContain("500");
+      expect(result.errorMessage).toContain("503");
+      expect(stderrLogs.some((line) => line.includes("fatal HTTP diagnostics"))).toBe(true);
+    } finally {
+      await new Promise<void>((resolve) => wss.close(() => resolve()));
+    }
+  });
+
+  it("returns exitCode=0 when HTTP tool calls include non-5xx statuses", async () => {
+    const wss = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+
+    wss.on("connection", (socket) => {
+      socket.send(JSON.stringify({ type: "event", event: "connect.challenge", payload: { nonce: "nonce-123" } }));
+
+      socket.on("message", (raw) => {
+        const text = Buffer.isBuffer(raw) ? raw.toString("utf8") : String(raw);
+        const frame = JSON.parse(text) as { type: string; id: string; method: string; params?: Record<string, unknown> };
+        if (frame.type !== "req") return;
+
+        if (frame.method === "connect") {
+          socket.send(JSON.stringify({ type: "res", id: frame.id, ok: true, payload: { protocol: 3, server: { version: "test", connId: "conn-1" } } }));
+          return;
+        }
+        if (frame.method === "agent") {
+          const runId = typeof frame.params?.idempotencyKey === "string" ? frame.params.idempotencyKey : "run-mixed";
+          socket.send(JSON.stringify({ type: "res", id: frame.id, ok: true, payload: { runId, status: "accepted", acceptedAt: Date.now(), meta: { provider: "ironclaw" } } }));
+          return;
+        }
+        if (frame.method === "agent.wait") {
+          socket.send(
+            JSON.stringify({
+              type: "res",
+              id: frame.id,
+              ok: true,
+              payload: {
+                runId: frame.params?.runId,
+                status: "ok",
+                startedAt: 1,
+                endedAt: 2,
+                meta: { provider: "ironclaw" },
+                toolDiagnostics: { http: { count: 2, statuses: [200, 500], all5xx: false } },
+              },
+            }),
+          );
+        }
+      });
+    });
+
+    await new Promise<void>((resolve) => { wss.once("listening", () => resolve()); });
+    const address = wss.address();
+    if (!address || typeof address === "string") throw new Error("Failed to get test server address");
+    const url = `ws://127.0.0.1:${address.port}`;
+
+    try {
+      const result = await execute(
+        buildContext({ url, authToken: buildFixtureAuthValue(), waitTimeoutMs: 2000 }),
+      );
+      expect(result.exitCode).toBe(0);
+    } finally {
+      await new Promise<void>((resolve) => wss.close(() => resolve()));
+    }
+  });
+});
+
 describe("ironclaw gateway testEnvironment", () => {
   it("reports missing url as failure", async () => {
     const result = await testEnvironment({

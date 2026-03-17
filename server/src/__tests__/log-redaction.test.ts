@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   CURRENT_USER_REDACTION_TOKEN,
   redactCurrentUserText,
+  redactSensitiveLogValue,
   redactCurrentUserValue,
+  SENSITIVE_VALUE_REDACTION_TOKEN,
 } from "../log-redaction.js";
 
 describe("log redaction", () => {
@@ -61,6 +63,38 @@ describe("log redaction", () => {
         author: CURRENT_USER_REDACTION_TOKEN,
       },
       values: [CURRENT_USER_REDACTION_TOKEN, `/home/${CURRENT_USER_REDACTION_TOKEN}/project`],
+    });
+  });
+
+  it("redacts authorization-style secrets in nested log payloads", () => {
+    const result = redactSensitiveLogValue({
+      headers: {
+        authorization: "Bearer top-secret-token",
+        cookie: "session=abc",
+        "x-ironclaw-token": "ironclaw-secret",
+        accept: "application/json",
+      },
+      body: {
+        apiKey: "pcp_secret",
+        nested: {
+          password: "super-secret",
+        },
+      },
+    });
+
+    expect(result).toEqual({
+      headers: {
+        authorization: SENSITIVE_VALUE_REDACTION_TOKEN,
+        cookie: SENSITIVE_VALUE_REDACTION_TOKEN,
+        "x-ironclaw-token": SENSITIVE_VALUE_REDACTION_TOKEN,
+        accept: "application/json",
+      },
+      body: {
+        apiKey: SENSITIVE_VALUE_REDACTION_TOKEN,
+        nested: {
+          password: SENSITIVE_VALUE_REDACTION_TOKEN,
+        },
+      },
     });
   });
 });

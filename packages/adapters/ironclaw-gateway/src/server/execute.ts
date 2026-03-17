@@ -188,6 +188,17 @@ function getGatewayErrorDetails(err: unknown): Record<string, unknown> | null {
   return asRecord(candidate);
 }
 
+function getHttpAll5xxFailure(payload: Record<string, unknown> | null): string | null {
+  const toolDiagnostics = asRecord(payload?.toolDiagnostics);
+  const http = asRecord(toolDiagnostics?.http);
+  if (http?.all5xx !== true) return null;
+  const statuses = Array.isArray(http.statuses)
+    ? http.statuses.filter((entry): entry is number => typeof entry === "number")
+    : [];
+  const statusSummary = statuses.length > 0 ? ` (statuses: ${statuses.join(", ")})` : "";
+  return `IronClaw gateway run completed, but all HTTP tool calls returned 5xx${statusSummary}`;
+}
+
 function extractPairingRequestId(err: unknown): string | null {
   const details = getGatewayErrorDetails(err);
   const fromDetails = nonEmpty(details?.requestId);
@@ -1219,6 +1230,28 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       const provider = nonEmpty(agentMeta?.provider) ?? nonEmpty(meta?.provider) ?? "ironclaw";
       const model = nonEmpty(agentMeta?.model) ?? nonEmpty(meta?.model) ?? null;
       const costUsd = asNumber(agentMeta?.costUsd ?? meta?.costUsd, 0);
+      const waitPayloadRecord = asRecord(latestResultPayload);
+      const httpAll5xxFailure = getHttpAll5xxFailure(waitPayloadRecord);
+
+      if (httpAll5xxFailure) {
+        await ctx.onLog(
+          "stderr",
+          `[ironclaw-gateway] run completed with fatal HTTP diagnostics: ${httpAll5xxFailure}\n`,
+        );
+        return {
+          exitCode: 1,
+          signal: null,
+          timedOut: false,
+          errorMessage: httpAll5xxFailure,
+          errorCode: "ironclaw_gateway_http_5xx",
+          ...(provider ? { provider } : {}),
+          ...(model ? { model } : {}),
+          ...(usage ? { usage } : {}),
+          ...(costUsd > 0 ? { costUsd } : {}),
+          resultJson: waitPayloadRecord,
+          ...(summary ? { summary } : {}),
+        };
+      }
 
       await ctx.onLog(
         "stdout",
@@ -1233,7 +1266,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
         ...(model ? { model } : {}),
         ...(usage ? { usage } : {}),
         ...(costUsd > 0 ? { costUsd } : {}),
-        resultJson: asRecord(latestResultPayload),
+        resultJson: waitPayloadRecord,
         ...(summary ? { summary } : {}),
       };
     } catch (err) {

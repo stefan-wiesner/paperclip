@@ -11,7 +11,7 @@ export interface ErrorContext {
   reqQuery?: unknown;
 }
 
-function attachErrorContext(
+export function attachErrorContext(
   req: Request,
   res: Response,
   payload: ErrorContext["error"],

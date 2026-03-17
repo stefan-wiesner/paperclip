@@ -48,6 +48,14 @@ import {
   agentConfigurationDoc as openclawGatewayAgentConfigurationDoc,
   models as openclawGatewayModels,
 } from "@paperclipai/adapter-openclaw-gateway";
+import {
+  execute as nemoclawGatewayExecute,
+  testEnvironment as nemoclawGatewayTestEnvironment,
+} from "@paperclipai/adapter-nemoclaw-gateway/server";
+import {
+  agentConfigurationDoc as nemoclawGatewayAgentConfigurationDoc,
+  models as nemoclawGatewayModels,
+} from "@paperclipai/adapter-nemoclaw-gateway";
 import { listCodexModels } from "./codex-models.js";
 import { listCursorModels } from "./cursor-models.js";
 import {
@@ -122,6 +130,15 @@ const ironclawGatewayAdapter: ServerAdapterModule = {
   agentConfigurationDoc: ironclawGatewayAgentConfigurationDoc,
 };
 
+const nemoclawGatewayAdapter: ServerAdapterModule = {
+  type: "nemoclaw_gateway",
+  execute: nemoclawGatewayExecute,
+  testEnvironment: nemoclawGatewayTestEnvironment,
+  models: nemoclawGatewayModels,
+  supportsLocalAgentJwt: false,
+  agentConfigurationDoc: nemoclawGatewayAgentConfigurationDoc,
+};
+
 const openCodeLocalAdapter: ServerAdapterModule = {
   type: "opencode_local",
   execute: openCodeExecute,
@@ -153,6 +170,7 @@ const adaptersByType = new Map<string, ServerAdapterModule>(
     cursorLocalAdapter,
     geminiLocalAdapter,
     ironclawGatewayAdapter,
+    nemoclawGatewayAdapter,
     openclawGatewayAdapter,
     processAdapter,
     httpAdapter,
