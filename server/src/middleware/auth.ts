@@ -120,12 +120,10 @@ export function actorMiddleware(db: Db, opts: ActorMiddlewareOptions): RequestHa
           .where(eq(agents.id, claims.sub))
           .then((rows) => rows[0] ?? null);
 
-<<<<<<< HEAD
         if (!agentRecord || agentRecord.companyId !== claims.company_id) {
           next();
           return;
         }
-=======
     const boardKey = await boardAuth.findBoardApiKeyByToken(token);
     if (boardKey) {
       const access = await boardAuth.resolveBoardAccess(boardKey.userId);
@@ -151,7 +149,6 @@ export function actorMiddleware(db: Db, opts: ActorMiddlewareOptions): RequestHa
       .from(agentApiKeys)
       .where(and(eq(agentApiKeys.keyHash, tokenHash), isNull(agentApiKeys.revokedAt)))
       .then((rows) => rows[0] ?? null);
->>>>>>> upstream/master
 
         if (agentRecord.status === "terminated" || agentRecord.status === "pending_approval") {
           next();
