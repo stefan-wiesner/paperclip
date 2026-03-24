@@ -6,7 +6,8 @@ export const SENSITIVE_VALUE_REDACTION_TOKEN = "[redacted]";
 const SENSITIVE_LOG_KEY_PATTERN =
   /(^|[_-])(auth|authorization|token|secret|password|api[_-]?key|private[_-]?key|cookie|set-cookie)([_-]|$)|^x-(?:ironclaw|openclaw)-(auth|token)$/i;
 
-interface CurrentUserRedactionOptions {
+export interface CurrentUserRedactionOptions {
+  enabled?: boolean;
   replacement?: string;
   userNames?: string[];
   homeDirs?: string[];
@@ -45,6 +46,12 @@ function replaceLastPathSegment(pathValue: string, replacement: string) {
   const lastSeparator = Math.max(normalized.lastIndexOf("/"), normalized.lastIndexOf("\\"));
   if (lastSeparator < 0) return replacement;
   return `${normalized.slice(0, lastSeparator + 1)}${replacement}`;
+}
+
+export function maskUserNameForLogs(value: string, fallback = CURRENT_USER_REDACTION_TOKEN) {
+  const trimmed = value.trim();
+  if (!trimmed) return fallback;
+  return `${trimmed[0]}${"*".repeat(Math.max(1, Array.from(trimmed).length - 1))}`;
 }
 
 function defaultUserNames() {
@@ -126,21 +133,22 @@ function redactSensitiveEntry(value: unknown, keyPath: string[] = []): unknown {
 
 export function redactCurrentUserText(input: string, opts?: CurrentUserRedactionOptions) {
   if (!input) return input;
+  if (opts?.enabled === false) return input;
 
   const { userNames, homeDirs, replacement } = resolveCurrentUserCandidates(opts);
   let result = input;
 
   for (const homeDir of [...homeDirs].sort((a, b) => b.length - a.length)) {
     const lastSegment = splitPathSegments(homeDir).pop() ?? "";
-    const replacementDir = userNames.includes(lastSegment)
-      ? replaceLastPathSegment(homeDir, replacement)
+    const replacementDir = lastSegment
+      ? replaceLastPathSegment(homeDir, maskUserNameForLogs(lastSegment, replacement))
       : replacement;
     result = result.split(homeDir).join(replacementDir);
   }
 
   for (const userName of [...userNames].sort((a, b) => b.length - a.length)) {
     const pattern = new RegExp(`(?<![A-Za-z0-9._-])${escapeRegExp(userName)}(?![A-Za-z0-9._-])`, "g");
-    result = result.replace(pattern, replacement);
+    result = result.replace(pattern, maskUserNameForLogs(userName, replacement));
   }
 
   return result;

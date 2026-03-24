@@ -8,6 +8,7 @@ import type { DeploymentMode } from "@paperclipai/shared";
 import type { BetterAuthSessionResult } from "../auth/better-auth.js";
 import { attachErrorContext } from "./error-handler.js";
 import { logger } from "./logger.js";
+import { boardAuthService } from "../services/board-auth.js";
 
 function hashToken(token: string) {
   return createHash("sha256").update(token).digest("hex");
@@ -19,12 +20,18 @@ interface ActorMiddlewareOptions {
 }
 
 export function actorMiddleware(db: Db, opts: ActorMiddlewareOptions): RequestHandler {
-  return async (req, res, next) => {
+
+  return async (req, _res, next) => {
     let authStage = "init";
     let authSource = "none";
     let tokenHashPrefix: string | null = null;
-    const runIdHeader = req.header("x-paperclip-run-id");
+    req.actor =
+      opts.deploymentMode === "local_trusted"
+        ? { type: "board", userId: "local-board", isInstanceAdmin: true, source: "local_implicit" }
+        : { type: "none", source: "none" };
 
+    const runIdHeader = req.header("x-paperclip-run-id");
+  // const boardAuth = boardAuthService(db);
     try {
       req.actor =
         opts.deploymentMode === "local_trusted"
@@ -113,10 +120,38 @@ export function actorMiddleware(db: Db, opts: ActorMiddlewareOptions): RequestHa
           .where(eq(agents.id, claims.sub))
           .then((rows) => rows[0] ?? null);
 
+<<<<<<< HEAD
         if (!agentRecord || agentRecord.companyId !== claims.company_id) {
           next();
           return;
         }
+=======
+    const boardKey = await boardAuth.findBoardApiKeyByToken(token);
+    if (boardKey) {
+      const access = await boardAuth.resolveBoardAccess(boardKey.userId);
+      if (access.user) {
+        await boardAuth.touchBoardApiKey(boardKey.id);
+        req.actor = {
+          type: "board",
+          userId: boardKey.userId,
+          companyIds: access.companyIds,
+          isInstanceAdmin: access.isInstanceAdmin,
+          keyId: boardKey.id,
+          runId: runIdHeader || undefined,
+          source: "board_key",
+        };
+        next();
+        return;
+      }
+    }
+
+    const tokenHash = hashToken(token);
+    const key = await db
+      .select()
+      .from(agentApiKeys)
+      .where(and(eq(agentApiKeys.keyHash, tokenHash), isNull(agentApiKeys.revokedAt)))
+      .then((rows) => rows[0] ?? null);
+>>>>>>> upstream/master
 
         if (agentRecord.status === "terminated" || agentRecord.status === "pending_approval") {
           next();

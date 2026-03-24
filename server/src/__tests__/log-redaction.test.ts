@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  CURRENT_USER_REDACTION_TOKEN,
+  maskUserNameForLogs,
   redactCurrentUserText,
   redactSensitiveLogValue,
   redactCurrentUserValue,
@@ -10,6 +10,7 @@ import {
 describe("log redaction", () => {
   it("redacts the active username inside home-directory paths", () => {
     const userName = "paperclipuser";
+    const maskedUserName = maskUserNameForLogs(userName);
     const input = [
       `cwd=/Users/${userName}/paperclip`,
       `home=/home/${userName}/workspace`,
@@ -21,14 +22,15 @@ describe("log redaction", () => {
       homeDirs: [`/Users/${userName}`, `/home/${userName}`, `C:\\Users\\${userName}`],
     });
 
-    expect(result).toContain(`cwd=/Users/${CURRENT_USER_REDACTION_TOKEN}/paperclip`);
-    expect(result).toContain(`home=/home/${CURRENT_USER_REDACTION_TOKEN}/workspace`);
-    expect(result).toContain(`win=C:\\Users\\${CURRENT_USER_REDACTION_TOKEN}\\paperclip`);
+    expect(result).toContain(`cwd=/Users/${maskedUserName}/paperclip`);
+    expect(result).toContain(`home=/home/${maskedUserName}/workspace`);
+    expect(result).toContain(`win=C:\\Users\\${maskedUserName}\\paperclip`);
     expect(result).not.toContain(userName);
   });
 
   it("redacts standalone username mentions without mangling larger tokens", () => {
     const userName = "paperclipuser";
+    const maskedUserName = maskUserNameForLogs(userName);
     const result = redactCurrentUserText(
       `user ${userName} said ${userName}/project should stay but apaperclipuserz should not change`,
       {
@@ -38,12 +40,13 @@ describe("log redaction", () => {
     );
 
     expect(result).toBe(
-      `user ${CURRENT_USER_REDACTION_TOKEN} said ${CURRENT_USER_REDACTION_TOKEN}/project should stay but apaperclipuserz should not change`,
+      `user ${maskedUserName} said ${maskedUserName}/project should stay but apaperclipuserz should not change`,
     );
   });
 
   it("recursively redacts nested event payloads", () => {
     const userName = "paperclipuser";
+    const maskedUserName = maskUserNameForLogs(userName);
     const result = redactCurrentUserValue({
       cwd: `/Users/${userName}/paperclip`,
       prompt: `open /Users/${userName}/paperclip/ui`,
@@ -57,15 +60,16 @@ describe("log redaction", () => {
     });
 
     expect(result).toEqual({
-      cwd: `/Users/${CURRENT_USER_REDACTION_TOKEN}/paperclip`,
-      prompt: `open /Users/${CURRENT_USER_REDACTION_TOKEN}/paperclip/ui`,
+      cwd: `/Users/${maskedUserName}/paperclip`,
+      prompt: `open /Users/${maskedUserName}/paperclip/ui`,
       nested: {
-        author: CURRENT_USER_REDACTION_TOKEN,
+        author: maskedUserName,
       },
-      values: [CURRENT_USER_REDACTION_TOKEN, `/home/${CURRENT_USER_REDACTION_TOKEN}/project`],
+      values: [maskedUserName, `/home/${maskedUserName}/project`],
     });
   });
 
+<<<<<<< HEAD
   it("redacts authorization-style secrets in nested log payloads", () => {
     const result = redactSensitiveLogValue({
       headers: {
@@ -96,5 +100,10 @@ describe("log redaction", () => {
         },
       },
     });
+=======
+  it("skips redaction when disabled", () => {
+    const input = "cwd=/Users/paperclipuser/paperclip";
+    expect(redactCurrentUserText(input, { enabled: false })).toBe(input);
+>>>>>>> upstream/master
   });
 });
