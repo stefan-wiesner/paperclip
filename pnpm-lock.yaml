@@ -7,6 +7,7 @@ settings:
 overrides:
   fast-xml-parser: 5.3.8
   rollup: 4.59.0
+
 patchedDependencies:
   embedded-postgres@18.1.0-beta.16:
     hash: 55uhvnotpqyiy37rn3pqpukhei
