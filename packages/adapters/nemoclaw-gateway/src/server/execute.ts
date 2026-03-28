@@ -759,8 +759,6 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
         exitCode: 0,
         signal: null,
         timedOut: false,
-        stdout: logChunks.join(""),
-        stderr: "",
         usage,
         resultJson: startResult,
         errorMessage: resultText ? undefined : "NemoClaw agent completed without result text",
@@ -771,8 +769,6 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       exitCode: 0,
       signal: null,
       timedOut: false,
-      stdout: logChunks.join(""),
-      stderr: "",
       resultJson: startResult,
     };
   } catch (err) {
@@ -783,7 +779,6 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       timedOut: false,
       errorMessage: message,
       errorCode: "nemoclaw_gateway_execution_error",
-      stdout: logChunks.join(""),
     };
   } finally {
     client.close();

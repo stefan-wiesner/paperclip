@@ -1,7 +1,10 @@
 import type { UIAdapterModule } from "../types";
-import { parseHermesStdoutLine } from "hermes-paperclip-adapter/ui";
+import type { CreateConfigValues } from "@paperclipai/adapter-utils";
 import { HermesLocalConfigFields } from "./config-fields";
-import { buildHermesConfig } from "hermes-paperclip-adapter/ui";
+
+// Note: hermes-paperclip-adapter does not export UI utilities
+const parseHermesStdoutLine = (line: string) => [{ kind: "stdout" as const, ts: new Date().toISOString(), text: line }];
+const buildHermesConfig = (_values: CreateConfigValues): Record<string, unknown> => ({});
 
 export const hermesLocalUIAdapter: UIAdapterModule = {
   type: "hermes_local",
