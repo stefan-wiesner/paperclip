@@ -1483,7 +1483,7 @@ function normalizePortableConfig(
       key === "instructionsRootPath" ||
       key === "instructionsEntryFile" ||
       key === "promptTemplate" ||
-      key === "bootstrapPromptTemplate" ||
+      key === "bootstrapPromptTemplate" || // deprecated — kept for backward compat
       key === "paperclipSkillSync"
     ) continue;
     if (key === "env") continue;
@@ -3903,7 +3903,7 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
           desiredSkills,
         );
         delete adapterConfigWithSkills.promptTemplate;
-        delete adapterConfigWithSkills.bootstrapPromptTemplate;
+        delete adapterConfigWithSkills.bootstrapPromptTemplate; // deprecated
         delete adapterConfigWithSkills.instructionsFilePath;
         delete adapterConfigWithSkills.instructionsBundleMode;
         delete adapterConfigWithSkills.instructionsRootPath;
