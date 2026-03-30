@@ -56,3 +56,7 @@ export { pluginEntities } from "./plugin_entities.js";
 export { pluginJobs, pluginJobRuns } from "./plugin_jobs.js";
 export { pluginWebhookDeliveries } from "./plugin_webhooks.js";
 export { pluginLogs } from "./plugin_logs.js";
+export { vulnerabilityScans } from "./vulnerability_scans.js";
+export { vulnerabilities } from "./vulnerabilities.js";
+export { scanFindings } from "./scan_findings.js";
+export { githubWebhooks } from "./github_webhooks.js";
