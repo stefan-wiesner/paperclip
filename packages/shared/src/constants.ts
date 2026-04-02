@@ -26,6 +26,7 @@ export const AGENT_ADAPTER_TYPES = [
   "http",
   "claude_local",
   "codex_local",
+  "gemini_local",
   "opencode_local",
   "pi_local",
   "cursor",
@@ -448,6 +449,7 @@ export const PLUGIN_CAPABILITIES = [
   "agent.sessions.close",
   "activity.log.write",
   "metrics.write",
+  "telemetry.track",
   // Plugin State
   "plugin.state.read",
   "plugin.state.write",
