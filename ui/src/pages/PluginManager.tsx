@@ -345,6 +345,9 @@ export function PluginManager() {
                     <p className="text-sm text-muted-foreground truncate mt-0.5" title={plugin.manifestJson.description}>
                       {plugin.manifestJson.description || "No description provided."}
                     </p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {(plugin.manifestJson.ui?.slots ?? []).filter((s) => s.type === "page").length} {(plugin.manifestJson.ui?.slots ?? []).filter((s) => s.type === "page").length === 1 ? "page" : "pages"}
+                    </p>
                     {plugin.status === "error" && (
                       <div className="mt-3 rounded-md border border-red-500/25 bg-red-500/[0.06] px-3 py-2">
                         <div className="flex flex-wrap items-start gap-3">
