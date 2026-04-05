@@ -1,3 +1,4 @@
+export { agentAdapterTypeSchema, optionalAgentAdapterTypeSchema } from "./adapter-type.js";
 export {
   COMPANY_STATUSES,
   DEPLOYMENT_MODES,
@@ -21,6 +22,7 @@ export {
   ROUTINE_CATCH_UP_POLICIES,
   ROUTINE_TRIGGER_KINDS,
   ROUTINE_TRIGGER_SIGNING_MODES,
+  ROUTINE_VARIABLE_TYPES,
   ROUTINE_RUN_STATUSES,
   ROUTINE_RUN_SOURCES,
   PAUSE_REASONS,
@@ -88,6 +90,7 @@ export {
   type RoutineCatchUpPolicy,
   type RoutineTriggerKind,
   type RoutineTriggerSigningMode,
+  type RoutineVariableType,
   type RoutineRunStatus,
   type RoutineRunSource,
   type PauseReason,
@@ -255,6 +258,8 @@ export type {
   FinanceSummary,
   FinanceByBiller,
   FinanceByKind,
+  AgentWakeupResponse,
+  AgentWakeupSkipped,
   HeartbeatRun,
   HeartbeatRunEvent,
   AgentRuntimeState,
@@ -304,6 +309,8 @@ export type {
   CompanySecret,
   SecretProviderDescriptor,
   Routine,
+  RoutineVariable,
+  RoutineVariableDefaultValue,
   RoutineTrigger,
   RoutineRun,
   RoutineTriggerSecretMaterial,
@@ -343,6 +350,11 @@ export {
   FEEDBACK_VOTE_VALUES,
   DEFAULT_FEEDBACK_DATA_SHARING_TERMS_VERSION,
 } from "./types/feedback.js";
+
+export {
+  getClosedIsolatedExecutionWorkspaceMessage,
+  isClosedIsolatedExecutionWorkspace,
+} from "./execution-workspace-guards.js";
 
 export {
   instanceGeneralSettingsSchema,
@@ -473,6 +485,7 @@ export {
   updateRoutineSchema,
   createRoutineTriggerSchema,
   updateRoutineTriggerSchema,
+  routineVariableSchema,
   runRoutineSchema,
   rotateRoutineTriggerSecretSchema,
   type CreateSecret,
@@ -587,15 +600,28 @@ export { deriveProjectUrlKey, normalizeProjectUrlKey, hasNonAsciiContent } from 
 export {
   AGENT_MENTION_SCHEME,
   PROJECT_MENTION_SCHEME,
+  SKILL_MENTION_SCHEME,
   buildAgentMentionHref,
   buildProjectMentionHref,
+  buildSkillMentionHref,
   extractAgentMentionIds,
+  extractSkillMentionIds,
   parseAgentMentionHref,
   parseProjectMentionHref,
+  parseSkillMentionHref,
   extractProjectMentionIds,
   type ParsedAgentMention,
   type ParsedProjectMention,
+  type ParsedSkillMention,
 } from "./project-mentions.js";
+
+export {
+  extractRoutineVariableNames,
+  interpolateRoutineTemplate,
+  isValidRoutineVariableName,
+  stringifyRoutineVariableValue,
+  syncRoutineVariablesWithTemplate,
+} from "./routine-variables.js";
 
 export {
   paperclipConfigSchema,
