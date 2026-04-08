@@ -32,6 +32,7 @@ import {
   isClaudeUnknownSessionError,
 } from "./parse.js";
 import { resolveClaudeDesiredSkillNames } from "./skills.js";
+import { isBedrockModelId } from "./models.js";
 
 const __moduleDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -102,8 +103,16 @@ function hasNonEmptyEnvValue(env: Record<string, string>, key: string): boolean 
   return typeof raw === "string" && raw.trim().length > 0;
 }
 
-function resolveClaudeBillingType(env: Record<string, string>): "api" | "subscription" {
-  // Claude uses API-key auth when ANTHROPIC_API_KEY is present; otherwise rely on local login/session auth.
+function isBedrockAuth(env: Record<string, string>): boolean {
+  return (
+    env.CLAUDE_CODE_USE_BEDROCK === "1" ||
+    env.CLAUDE_CODE_USE_BEDROCK === "true" ||
+    hasNonEmptyEnvValue(env, "ANTHROPIC_BEDROCK_BASE_URL")
+  );
+}
+
+function resolveClaudeBillingType(env: Record<string, string>): "api" | "subscription" | "metered_api" {
+  if (isBedrockAuth(env)) return "metered_api";
   return hasNonEmptyEnvValue(env, "ANTHROPIC_API_KEY") ? "api" : "subscription";
 }
 
@@ -431,7 +440,12 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     if (resumeSessionId) args.push("--resume", resumeSessionId);
     if (dangerouslySkipPermissions) args.push("--dangerously-skip-permissions");
     if (chrome) args.push("--chrome");
-    if (model) args.push("--model", model);
+    // For Bedrock: only pass --model when the ID is a Bedrock-native identifier
+    // (e.g. "us.anthropic.*" or ARN). Anthropic-style IDs like "claude-opus-4-6" are invalid
+    // on Bedrock, so skip them and let the CLI use its own configured model.
+    if (model && (!isBedrockAuth(effectiveEnv) || isBedrockModelId(model))) {
+      args.push("--model", model);
+    }
     if (effort) args.push("--effort", effort);
     if (maxTurns > 0) args.push("--max-turns", String(maxTurns));
     if (effectiveInstructionsFilePath) {
@@ -578,7 +592,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       sessionParams: resolvedSessionParams,
       sessionDisplayId: resolvedSessionId,
       provider: "anthropic",
-      biller: "anthropic",
+      biller: isBedrockAuth(effectiveEnv) ? "aws_bedrock" : "anthropic",
       model: parsedStream.model || asString(parsed.model, model),
       billingType,
       costUsd: parsedStream.costUsd ?? asNumber(parsed.total_cost_usd, 0),
