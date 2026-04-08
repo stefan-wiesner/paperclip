@@ -63,7 +63,7 @@ export async function runCommand(opts: RunOptions): Promise<void> {
   p.log.step("Running doctor checks...");
   const summary = await doctor({
     config: configPath,
-    repair: opts.repair ?? true,
+    repair: opts.repair ?? false,
     yes: opts.yes ?? true,
   });
 

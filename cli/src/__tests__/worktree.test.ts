@@ -381,7 +381,7 @@ describe("worktree helpers", () => {
               deploymentMode: "authenticated",
               exposure: "private",
               host: "127.0.0.1",
-              port: 3101,
+              port: 3100,
               allowedHostnames: ["localhost"],
               serveUi: true,
             },
@@ -418,7 +418,7 @@ describe("worktree helpers", () => {
       });
 
       const config = JSON.parse(fs.readFileSync(path.join(repoRoot, ".paperclip", "config.json"), "utf8"));
-      expect(config.server.port).toBeGreaterThan(3101);
+      expect(config.server.port).toBeGreaterThan(3100);
       expect(config.database.embeddedPostgresPort).not.toBe(54330);
       expect(config.database.embeddedPostgresPort).not.toBe(config.server.port);
       expect(config.database.embeddedPostgresPort).toBeGreaterThan(54330);

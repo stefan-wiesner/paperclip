@@ -164,7 +164,7 @@ This is a fork of `paperclipai/paperclip` with QoL patches and an **external-onl
 
 ### Local Dev
 
-- Fork runs on port 3101+ (auto-detects if 3100 is taken by upstream instance)
+- Fork runs on port 3100 and this port only!
 - `npx vite build` hangs on NTFS — use `node node_modules/vite/bin/vite.js build` instead
 - Server startup from NTFS takes 30-60s — don't assume failure immediately
 - Kill ALL paperclip processes before starting: `pkill -f "paperclip"; pkill -f "tsx.*index.ts"`
