@@ -4556,11 +4556,16 @@ packages:
   fast-uri@3.1.0:
     resolution: {integrity: sha512-iPeeDKJSWf4IEOasVVrknXpaBV0IApz/gp7S2bb7Z4Lljbl2MGJRqInZiUrQwV16cpzw/D3S5j5Julj/gT52AA==}
 
+<<<<<<< HEAD
   fast-xml-builder@1.1.4:
     resolution: {integrity: sha512-f2jhpN4Eccy0/Uz9csxh3Nu6q4ErKxf0XIsasomfOihuSUa3/xw6w8dnOtCDgEItQFJG8KyXPzQXzcODDrrbOg==}
 
   fast-xml-parser@5.5.11:
     resolution: {integrity: sha512-QL0eb0YbSTVWF6tTf1+LEMSgtCEjBYPpnAjoLC8SscESlAjXEIRJ7cHtLG0pLeDFaZLa4VKZLArtA/60ZS7vyA==}
+=======
+  fast-xml-parser@5.3.6:
+    resolution: {integrity: sha512-QNI3sAvSvaOiaMl8FYU4trnEzCwiRr8XMWgAHzlrWpTSj+QaCSvOf1h82OEP1s4hiAXhnbXSyFWCf4ldZzZRVA==}
+>>>>>>> 9247712d7eff585463d31bbcf620283210a28a89
     hasBin: true
 
   fault@2.0.1:
@@ -5670,11 +5675,14 @@ packages:
   robust-predicates@3.0.2:
     resolution: {integrity: sha512-IXgzBWvWQwE6PrDI05OvmXUIruQTcoMDzRsOd5CDvHCVLcLHMTSYvOK5Cm46kWqlV3yAbuSpBZdJ5oP5OUoStg==}
 
+<<<<<<< HEAD
   rolldown@1.0.0-rc.15:
     resolution: {integrity: sha512-Ff31guA5zT6WjnGp0SXw76X6hzGRk/OQq2hE+1lcDe+lJdHSgnSX6nK3erbONHyCbpSj9a9E+uX/OvytZoWp2g==}
     engines: {node: ^20.19.0 || >=22.12.0}
     hasBin: true
 
+=======
+>>>>>>> 9247712d7eff585463d31bbcf620283210a28a89
   rollup@4.60.1:
     resolution: {integrity: sha512-VmtB2rFU/GroZ4oL8+ZqXgSA38O6GR8KSIvWmEFv63pQ0G6KaBH9s07PO8XTXP4vI+3UJUEypOfjkGfmSBBR0w==}
     engines: {node: '>=18.0.0', npm: '>=8.0.0'}
@@ -6890,7 +6898,11 @@ snapshots:
   '@aws-sdk/xml-builder@3.972.5':
     dependencies:
       '@smithy/types': 4.12.0
+<<<<<<< HEAD
       fast-xml-parser: 5.5.11
+=======
+      fast-xml-parser: 5.3.6
+>>>>>>> 9247712d7eff585463d31bbcf620283210a28a89
       tslib: 2.8.1
 
   '@aws/lambda-invoke-store@0.2.3': {}
@@ -8986,8 +8998,11 @@ snapshots:
 
   '@rolldown/pluginutils@1.0.0-beta.27': {}
 
+<<<<<<< HEAD
   '@rolldown/pluginutils@1.0.0-rc.15': {}
 
+=======
+>>>>>>> 9247712d7eff585463d31bbcf620283210a28a89
   '@rollup/plugin-node-resolve@16.0.3(rollup@4.60.1)':
     dependencies:
       '@rollup/pluginutils': 5.3.0(rollup@4.60.1)
@@ -10692,7 +10707,11 @@ snapshots:
 
   fast-uri@3.1.0: {}
 
+<<<<<<< HEAD
   fast-xml-builder@1.1.4:
+=======
+  fast-xml-parser@5.3.6:
+>>>>>>> 9247712d7eff585463d31bbcf620283210a28a89
     dependencies:
       path-expression-matcher: 1.4.0
 
@@ -12140,6 +12159,7 @@ snapshots:
 
   robust-predicates@3.0.2: {}
 
+<<<<<<< HEAD
   rolldown@1.0.0-rc.15:
     dependencies:
       '@oxc-project/types': 0.124.0
@@ -12161,6 +12181,8 @@ snapshots:
       '@rolldown/binding-win32-arm64-msvc': 1.0.0-rc.15
       '@rolldown/binding-win32-x64-msvc': 1.0.0-rc.15
 
+=======
+>>>>>>> 9247712d7eff585463d31bbcf620283210a28a89
   rollup@4.60.1:
     dependencies:
       '@types/estree': 1.0.8
@@ -12723,10 +12745,18 @@ snapshots:
 
   vite@8.0.8(@types/node@24.12.0)(esbuild@0.25.12)(jiti@2.6.1)(tsx@4.21.0):
     dependencies:
+<<<<<<< HEAD
       lightningcss: 1.32.0
       picomatch: 4.0.4
       postcss: 8.5.9
       rolldown: 1.0.0-rc.15
+=======
+      esbuild: 0.27.3
+      fdir: 6.5.0(picomatch@4.0.3)
+      picomatch: 4.0.3
+      postcss: 8.5.6
+      rollup: 4.60.1
+>>>>>>> 9247712d7eff585463d31bbcf620283210a28a89
       tinyglobby: 0.2.15
     optionalDependencies:
       '@types/node': 24.12.0
@@ -12745,6 +12775,7 @@ snapshots:
     optionalDependencies:
       '@types/node': 24.12.0
       esbuild: 0.27.3
+<<<<<<< HEAD
       fsevents: 2.3.3
       jiti: 2.6.1
       tsx: 4.21.0
@@ -12755,6 +12786,12 @@ snapshots:
       picomatch: 4.0.4
       postcss: 8.5.9
       rolldown: 1.0.0-rc.15
+=======
+      fdir: 6.5.0(picomatch@4.0.3)
+      picomatch: 4.0.3
+      postcss: 8.5.6
+      rollup: 4.60.1
+>>>>>>> 9247712d7eff585463d31bbcf620283210a28a89
       tinyglobby: 0.2.15
     optionalDependencies:
       '@types/node': 25.2.3
