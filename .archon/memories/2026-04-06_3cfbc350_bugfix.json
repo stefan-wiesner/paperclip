@@ -1,0 +1,17 @@
+{
+  "id": "3cfbc350",
+  "title": "fix: skip --append-system-prompt-file on resumed claude sessions",
+  "date": "2026-04-06 16:11:39 +0100",
+  "category": "bugfix",
+  "files": [
+    "packages/adapters/claude-local/src/server/execute.ts",
+    "server/src/__tests__/claude-local-execute.test.ts"
+  ],
+  "lessons": [
+    "Added null/undefined check - always validate before accessing properties",
+    "Fixed async handling - ensure proper await/promise chain",
+    "Added error handling - wrap risky operations in try/catch",
+    "Fixed type issue - use strict comparison and explicit type conversion"
+  ],
+  "diff_summary": "on cache. Unconditionally passing --append-system-prompt-file\n    re-injects 5-10K redundant tokens per heartbeat and may be rejected by\n    the Claude CLI when combined with --resume.\n    \n    Guard the flag behind `!resumeSessionId` so it is only appended on\n    fresh session starts.\n    \n    Fixes: #2848\n\n .../adapters/claude-local/src/server/execute.ts    |  5 +-\n server/src/__tests__/claude-local-execute.test.ts  | 91 ++++++++++++++++++++++\n 2 files changed, 95 insertions(+), 1 deletion(-)\n"
+}

@@ -1,0 +1,24 @@
+{
+  "keys": [
+    "session_id",
+    "transcript_path",
+    "cwd",
+    "permission_mode",
+    "hook_event_name",
+    "tool_name",
+    "tool_input",
+    "tool_response",
+    "tool_use_id"
+  ],
+  "sample": {
+    "session_id": "b9b45fc8-3f0d-4b4a-bab1-910f37fadbe6",
+    "transcript_path": "/home/dev/.claude/projects/-home-dev-pp-aistack/b9b45fc8-3f0d-4b4a-bab1-910f37fadbe6.jsonl",
+    "cwd": "/home/dev/pp/aistack/repos/paperclip",
+    "permission_mode": "acceptEdits",
+    "hook_event_name": "PostToolUse",
+    "tool_name": "Bash",
+    "tool_input": "{'command': 'cd /home/dev/pp/aistack/repos/paperclip && pnpm install 2>&1 | tail -20', 'timeout': 120000, 'description': 'Install paperclip dependencies including @assistant-ui/react'}",
+    "tool_response": "{'stdout': 'Scope: all 23 workspace projects\\nLockfile is up to date, resolution step is skipped\\nAlready up to date\\n\\nDone in 1.6s', 'stderr': '', 'interrupted': False, 'isImage': False, 'noOutputEx",
+    "tool_use_id": "toolu_01Vz6EgDFyAhsGHVupV1TTkT"
+  }
+}

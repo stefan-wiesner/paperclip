@@ -1,0 +1,53 @@
+[
+  {
+    "name": "memory_8e59654e",
+    "entityType": "code_bugfix",
+    "observations": [
+      "Title: fix: startup and local",
+      "Date: 2026-04-08 14:03:36 +0200",
+      "Files: AGENTS.md, cli/src/__tests__/worktree.test.ts, cli/src/checks/port-check.ts, cli/src/commands/run.ts, scripts/provision-worktree.sh",
+      "Lesson: Added null/undefined check - always validate before accessing properties",
+      "Lesson: Fixed type issue - use strict comparison and explicit type conversion"
+    ]
+  },
+  {
+    "name": "memory_0ff262ca",
+    "entityType": "code_bugfix",
+    "observations": [
+      "Title: fix: preserve claude instructions on resume fallback",
+      "Date: 2026-04-08 06:52:35 -0500",
+      "Files: packages/adapters/claude-local/src/server/execute.ts, server/src/__tests__/claude-local-execute.test.ts",
+      "Lesson: Added null/undefined check - always validate before accessing properties",
+      "Lesson: Fixed async handling - ensure proper await/promise chain",
+      "Lesson: Added error handling - wrap risky operations in try/catch",
+      "Lesson: Fixed SQL injection risk - use parameterized queries",
+      "Lesson: Added boundary check - validate array/string indices"
+    ]
+  },
+  {
+    "name": "memory_e3804f79",
+    "entityType": "code_bugfix",
+    "observations": [
+      "Title: fix: gate instructions file I/O and commandNotes on fresh sessions only",
+      "Date: 2026-04-07 22:16:00 +0100",
+      "Files: packages/adapters/claude-local/src/server/execute.ts, server/src/__tests__/claude-local-execute.test.ts",
+      "Lesson: Fixed async handling - ensure proper await/promise chain",
+      "Lesson: Added error handling - wrap risky operations in try/catch",
+      "Lesson: Fixed type issue - use strict comparison and explicit type conversion",
+      "Lesson: Added boundary check - validate array/string indices"
+    ]
+  },
+  {
+    "name": "memory_3cfbc350",
+    "entityType": "code_bugfix",
+    "observations": [
+      "Title: fix: skip --append-system-prompt-file on resumed claude sessions",
+      "Date: 2026-04-06 16:11:39 +0100",
+      "Files: packages/adapters/claude-local/src/server/execute.ts, server/src/__tests__/claude-local-execute.test.ts",
+      "Lesson: Added null/undefined check - always validate before accessing properties",
+      "Lesson: Fixed async handling - ensure proper await/promise chain",
+      "Lesson: Added error handling - wrap risky operations in try/catch",
+      "Lesson: Fixed type issue - use strict comparison and explicit type conversion"
+    ]
+  }
+]

@@ -1,0 +1,54 @@
+{
+  "commands_run": 4,
+  "errors_seen": [],
+  "fixes_applied": [
+    {
+      "hash": "8e59654e",
+      "message": "fix: startup and local",
+      "time": "2026-04-09T19:46:05.667601"
+    },
+    {
+      "hash": "0ff262ca",
+      "message": "fix: preserve claude instructions on resume fallback",
+      "time": "2026-04-09T19:46:05.667604"
+    },
+    {
+      "hash": "e3804f79",
+      "message": "fix: gate instructions file I/O and commandNotes on fresh sessions only",
+      "time": "2026-04-09T19:46:05.667605"
+    },
+    {
+      "hash": "3cfbc350",
+      "message": "fix: skip --append-system-prompt-file on resumed claude sessions",
+      "time": "2026-04-09T19:47:01.842394"
+    }
+  ],
+  "recent_commands": [
+    {
+      "cmd": "cd /home/dev/pp/aistack/repos/paperclip && pnpm install 2>&1 | tail -20",
+      "time": "2026-04-09T19:46:05.612160",
+      "exit_code": 0
+    },
+    {
+      "cmd": "cat /home/dev/pp/aistack/repos/paperclip/pnpm-workspace.yaml 2>/dev/null || echo \"no workspace file\"",
+      "time": "2026-04-09T19:47:01.830522",
+      "exit_code": 0
+    },
+    {
+      "cmd": "ls /home/dev/pp/aistack/repos/paperclip/node_modules/.pnpm/ | grep assistant 2>/dev/null | head -5 |",
+      "time": "2026-04-09T19:47:01.991099",
+      "exit_code": 0
+    },
+    {
+      "cmd": "ls /home/dev/pp/aistack/repos/paperclip/ui/node_modules/@assistant-ui 2>/dev/null || echo \"missing\"",
+      "time": "2026-04-09T19:47:37.967045",
+      "exit_code": 0
+    }
+  ],
+  "processed_commits": [
+    "8e59654e",
+    "0ff262ca",
+    "e3804f79",
+    "3cfbc350"
+  ]
+}

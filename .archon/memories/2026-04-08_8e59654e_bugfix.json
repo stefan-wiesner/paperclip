@@ -1,0 +1,21 @@
+{
+  "id": "8e59654e",
+  "title": "fix: startup and local",
+  "date": "2026-04-08 14:03:36 +0200",
+  "category": "bugfix",
+  "files": [
+    "AGENTS.md",
+    "cli/src/__tests__/worktree.test.ts",
+    "cli/src/checks/port-check.ts",
+    "cli/src/commands/run.ts",
+    "scripts/provision-worktree.sh",
+    "server/src/__tests__/paperclip-env.test.ts",
+    "server/src/__tests__/worktree-config.test.ts",
+    "server/src/worktree-config.ts"
+  ],
+  "lessons": [
+    "Added null/undefined check - always validate before accessing properties",
+    "Fixed type issue - use strict comparison and explicit type conversion"
+  ],
+  "diff_summary": "                                |  2 +-\n cli/src/__tests__/worktree.test.ts           |  4 ++--\n cli/src/checks/port-check.ts                 | 16 ++--------------\n cli/src/commands/run.ts                      |  2 +-\n scripts/provision-worktree.sh                |  2 +-\n server/src/__tests__/paperclip-env.test.ts   | 10 +++++-----\n server/src/__tests__/worktree-config.test.ts |  8 ++++----\n server/src/worktree-config.ts                |  2 +-\n 8 files changed, 17 insertions(+), 29 deletions(-)\n"
+}

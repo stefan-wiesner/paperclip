@@ -1,0 +1,17 @@
+{
+  "id": "e3804f79",
+  "title": "fix: gate instructions file I/O and commandNotes on fresh sessions only",
+  "date": "2026-04-07 22:16:00 +0100",
+  "category": "bugfix",
+  "files": [
+    "packages/adapters/claude-local/src/server/execute.ts",
+    "server/src/__tests__/claude-local-execute.test.ts"
+  ],
+  "lessons": [
+    "Fixed async handling - ensure proper await/promise chain",
+    "Added error handling - wrap risky operations in try/catch",
+    "Fixed type issue - use strict comparison and explicit type conversion",
+    "Added boundary check - validate array/string indices"
+  ],
+  "diff_summary": "t canResumeSession before the I/O block and gate both the disk\n    operations and commandNotes construction on !canResumeSession / !sessionId.\n    \n    Adds three regression tests: commandNotes is populated on fresh sessions,\n    empty on resume; and no agent-instructions.md is written on resume.\n\n .../adapters/claude-local/src/server/execute.ts    |  45 +++++----\n server/src/__tests__/claude-local-execute.test.ts  | 107 +++++++++++++++++++++\n 2 files changed, 132 insertions(+), 20 deletions(-)\n"
+}

@@ -1,0 +1,18 @@
+{
+  "id": "0ff262ca",
+  "title": "fix: preserve claude instructions on resume fallback",
+  "date": "2026-04-08 06:52:35 -0500",
+  "category": "bugfix",
+  "files": [
+    "packages/adapters/claude-local/src/server/execute.ts",
+    "server/src/__tests__/claude-local-execute.test.ts"
+  ],
+  "lessons": [
+    "Added null/undefined check - always validate before accessing properties",
+    "Fixed async handling - ensure proper await/promise chain",
+    "Added error handling - wrap risky operations in try/catch",
+    "Fixed SQL injection risk - use parameterized queries",
+    "Added boundary check - validate array/string indices"
+  ],
+  "diff_summary": "commit 0ff262ca0f30ec225e9c0da57b0ab51964cbe7b8\nAuthor: dotta <dotta@example.com>\nDate:   Wed Apr 8 06:52:35 2026 -0500\n\n    fix: preserve claude instructions on resume fallback\n\n .../adapters/claude-local/src/server/execute.ts    |  44 ++++----\n server/src/__tests__/claude-local-execute.test.ts  | 115 ++++++++++++++++++++-\n 2 files changed, 136 insertions(+), 23 deletions(-)\n"
+}
