@@ -21,7 +21,6 @@ import { queryKeys } from "../lib/queryKeys";
 import {
   applyIssueFilters,
   countActiveIssueFilters,
-  defaultIssueFilterState,
   type IssueFilterState,
 } from "../lib/issue-filters";
 import {
@@ -31,8 +30,16 @@ import {
   rememberIssueDetailLocationState,
   withIssueDetailHeaderSeed,
 } from "../lib/issueDetailBreadcrumb";
-import { hasBlockingShortcutDialog, isKeyboardShortcutTextInputTarget } from "../lib/keyboardShortcuts";
+import { prefetchIssueDetail } from "../lib/issueDetailCache";
+import {
+  hasBlockingShortcutDialog,
+  isKeyboardShortcutTextInputTarget,
+  resolveInboxUndoArchiveKeyAction,
+  shouldBlurPageSearchOnEnter,
+  shouldBlurPageSearchOnEscape,
+} from "../lib/keyboardShortcuts";
 import { EmptyState } from "../components/EmptyState";
+import { IssueGroupHeader } from "../components/IssueGroupHeader";
 import { PageSkeleton } from "../components/PageSkeleton";
 import {
   InboxIssueMetaLeading,
@@ -88,28 +95,42 @@ import type { Approval, HeartbeatRun, Issue, JoinRequest } from "@paperclipai/sh
 import {
   ACTIONABLE_APPROVAL_STATUSES,
   DEFAULT_INBOX_ISSUE_COLUMNS,
+  buildInboxKeyboardNavEntries,
   buildInboxNesting,
   getAvailableInboxIssueColumns,
+  getInboxWorkItemKey,
   getApprovalsForTab,
-  getInboxWorkItems,
+  getArchivedInboxSearchIssues,
   getInboxKeyboardSelectionIndex,
+  getInboxWorkItems,
+  getInboxSearchSupplementIssues,
   getLatestFailedRunsByAgent,
+  matchesInboxIssueSearch,
   getRecentTouchedIssues,
   groupInboxWorkItems,
   isInboxEntityDismissed,
   isMineInboxTab,
+  loadCollapsedInboxGroupKeys,
+  loadInboxFilterPreferences,
   loadInboxIssueColumns,
   loadInboxNesting,
   loadInboxWorkItemGroupBy,
   normalizeInboxIssueColumns,
   resolveInboxNestingEnabled,
+  shouldResetInboxWorkspaceGrouping,
   resolveIssueWorkspaceName,
   resolveInboxSelectionIndex,
+  saveInboxFilterPreferences,
+  saveCollapsedInboxGroupKeys,
   saveInboxIssueColumns,
   saveInboxNesting,
   saveInboxWorkItemGroupBy,
+  type InboxWorkspaceGroupingOptions,
   type InboxApprovalFilter,
+  type InboxCategoryFilter,
+  type InboxFilterPreferences,
   type InboxIssueColumn,
+  type InboxKeyboardNavEntry,
   saveLastInboxTab,
   shouldShowInboxSection,
   type InboxTab,
@@ -119,29 +140,45 @@ import {
 import { useDismissedInboxAlerts, useInboxDismissals, useReadInboxItems } from "../hooks/useInboxBadge";
 
 export { InboxIssueMetaLeading, InboxIssueTrailingColumns } from "../components/IssueColumns";
-
-type InboxCategoryFilter =
-  | "everything"
-  | "issues_i_touched"
-  | "join_requests"
-  | "approvals"
-  | "failed_runs"
-  | "alerts";
+export { IssueGroupHeader as InboxGroupHeader } from "../components/IssueGroupHeader";
 type SectionKey =
   | "work_items"
   | "alerts";
 
 /** A flat navigation entry for keyboard j/k traversal that includes expanded children. */
-type NavEntry =
-  | { type: "top"; index: number; item: InboxWorkItem }
-  | { type: "child"; parentIndex: number; issue: Issue };
+type NavEntry = InboxKeyboardNavEntry;
 
 type InboxGroupedSection = {
   key: string;
   label: string | null;
   displayItems: InboxWorkItem[];
   childrenByIssueId: Map<string, Issue[]>;
+  isArchivedSearch: boolean;
 };
+
+function buildGroupedInboxSections(
+  items: InboxWorkItem[],
+  groupBy: InboxWorkItemGroupBy,
+  nestingEnabled: boolean,
+  workspaceGrouping: InboxWorkspaceGroupingOptions,
+  options?: { keyPrefix?: string; isArchivedSearch?: boolean },
+): InboxGroupedSection[] {
+  const keyPrefix = options?.keyPrefix ?? "";
+  const isArchivedSearch = options?.isArchivedSearch ?? false;
+  return groupInboxWorkItems(items, groupBy, workspaceGrouping).map((group) => {
+    const nestedGroup = nestingEnabled && group.items.some((item) => item.kind === "issue")
+      ? buildInboxNesting(group.items)
+      : { displayItems: group.items, childrenByIssueId: new Map<string, Issue[]>() };
+
+    return {
+      key: `${keyPrefix}${group.key}`,
+      label: group.label,
+      displayItems: nestedGroup.displayItems,
+      childrenByIssueId: nestedGroup.childrenByIssueId,
+      isArchivedSearch,
+    };
+  });
+}
 
 function firstNonEmptyLine(value: string | null | undefined): string | null {
   if (!value) return null;
@@ -615,15 +652,18 @@ export function Inbox() {
     queryFn: () => instanceSettingsApi.getExperimental(),
     retry: false,
   });
+  const experimentalSettingsLoaded = experimentalSettings !== undefined;
   const [searchQuery, setSearchQuery] = useState("");
-  const [allCategoryFilter, setAllCategoryFilter] = useState<InboxCategoryFilter>("everything");
-  const [allApprovalFilter, setAllApprovalFilter] = useState<InboxApprovalFilter>("all");
-  const [issueFilters, setIssueFilters] = useState<IssueFilterState>(defaultIssueFilterState);
+  const normalizedSearchQuery = searchQuery.trim();
+  const [filterPreferences, setFilterPreferences] = useState<InboxFilterPreferences>(
+    () => loadInboxFilterPreferences(selectedCompanyId),
+  );
   const [groupBy, setGroupBy] = useState<InboxWorkItemGroupBy>(() => loadInboxWorkItemGroupBy());
   const [visibleIssueColumns, setVisibleIssueColumns] = useState<InboxIssueColumn[]>(loadInboxIssueColumns);
   const { dismissed: dismissedAlerts, dismiss: dismissAlert } = useDismissedInboxAlerts();
   const { dismissedAtByKey, dismiss: dismissInboxItem } = useInboxDismissals(selectedCompanyId);
   const { readItems, markRead: markItemRead, markUnread: markItemUnread } = useReadInboxItems();
+  const { allCategoryFilter, allApprovalFilter, issueFilters } = filterPreferences;
 
   const pathSegment = location.pathname.split("/").pop() ?? "mine";
   const tab: InboxTab =
@@ -680,6 +720,15 @@ export function Inbox() {
     setSelectedIndex(-1);
     setSearchQuery("");
   }, [tab]);
+
+  const previousSelectedCompanyIdRef = useRef<string | null>(selectedCompanyId);
+  useEffect(() => {
+    if (previousSelectedCompanyIdRef.current !== selectedCompanyId) {
+      previousSelectedCompanyIdRef.current = selectedCompanyId;
+      setFilterPreferences(loadInboxFilterPreferences(selectedCompanyId));
+      setCollapsedGroupKeys(loadCollapsedInboxGroupKeys(selectedCompanyId));
+    }
+  }, [selectedCompanyId]);
 
   const {
     data: approvals,
@@ -753,6 +802,13 @@ export function Inbox() {
     queryKey: queryKeys.heartbeats(selectedCompanyId!),
     queryFn: () => heartbeatsApi.list(selectedCompanyId!),
     enabled: !!selectedCompanyId,
+  });
+
+  const { data: liveRuns } = useQuery({
+    queryKey: queryKeys.liveRuns(selectedCompanyId!),
+    queryFn: () => heartbeatsApi.liveRunsForCompany(selectedCompanyId!),
+    enabled: !!selectedCompanyId,
+    refetchInterval: 5000,
   });
   const currentUserId = session?.user.id ?? session?.session.userId ?? null;
 
@@ -832,6 +888,14 @@ export function Inbox() {
     }
     return map;
   }, [executionWorkspaces]);
+  const inboxWorkspaceGrouping = useMemo<InboxWorkspaceGroupingOptions>(
+    () => ({
+      executionWorkspaceById,
+      projectWorkspaceById,
+      defaultProjectWorkspaceIdByProjectId,
+    }),
+    [defaultProjectWorkspaceIdByProjectId, executionWorkspaceById, projectWorkspaceById],
+  );
   const visibleIssueColumnSet = useMemo(() => new Set(visibleIssueColumns), [visibleIssueColumns]);
   const availableIssueColumns = useMemo(
     () => getAvailableInboxIssueColumns(isolatedWorkspacesEnabled),
@@ -852,13 +916,11 @@ export function Inbox() {
   );
   const liveIssueIds = useMemo(() => {
     const ids = new Set<string>();
-    for (const run of heartbeatRuns ?? []) {
-      if (run.status !== "running" && run.status !== "queued") continue;
-      const issueId = readIssueIdFromRun(run);
-      if (issueId) ids.add(issueId);
+    for (const run of liveRuns ?? []) {
+      if (run.issueId) ids.add(run.issueId);
     }
     return ids;
-  }, [heartbeatRuns]);
+  }, [liveRuns]);
 
   const approvalsToRender = useMemo(() => {
     let filtered = getApprovalsForTab(approvals ?? [], tab, allApprovalFilter);
@@ -905,23 +967,16 @@ export function Inbox() {
   );
 
   const filteredWorkItems = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
+    const q = normalizedSearchQuery.toLowerCase();
     if (!q) return workItemsToRender;
     return workItemsToRender.filter((item) => {
       if (item.kind === "issue") {
-        const issue = item.issue;
-        if (issue.title.toLowerCase().includes(q)) return true;
-        if (issue.identifier?.toLowerCase().includes(q)) return true;
-        if (issue.description?.toLowerCase().includes(q)) return true;
-        if (isolatedWorkspacesEnabled) {
-          const workspaceName = resolveIssueWorkspaceName(issue, {
-            executionWorkspaceById,
-            projectWorkspaceById,
-            defaultProjectWorkspaceIdByProjectId,
-          });
-          if (workspaceName?.toLowerCase().includes(q)) return true;
-        }
-        return false;
+        return matchesInboxIssueSearch(item.issue, q, {
+          isolatedWorkspacesEnabled,
+          executionWorkspaceById,
+          projectWorkspaceById,
+          defaultProjectWorkspaceIdByProjectId,
+        });
       }
       if (item.kind === "approval") {
         const a = item.approval;
@@ -954,18 +1009,99 @@ export function Inbox() {
     });
   }, [
     workItemsToRender,
-    searchQuery,
     agentById,
     defaultProjectWorkspaceIdByProjectId,
     executionWorkspaceById,
     issueById,
     isolatedWorkspacesEnabled,
+    normalizedSearchQuery,
     projectWorkspaceById,
   ]);
+
+  const archivedSearchIssues = useMemo(
+    () =>
+      tab === "mine"
+        ? getArchivedInboxSearchIssues({
+          visibleIssues: visibleMineIssues,
+          searchableIssues: visibleTouchedIssues,
+          query: normalizedSearchQuery,
+          isolatedWorkspacesEnabled,
+          executionWorkspaceById,
+          projectWorkspaceById,
+          defaultProjectWorkspaceIdByProjectId,
+        })
+        : [],
+    [
+      defaultProjectWorkspaceIdByProjectId,
+      executionWorkspaceById,
+      isolatedWorkspacesEnabled,
+      normalizedSearchQuery,
+      projectWorkspaceById,
+      tab,
+      visibleMineIssues,
+      visibleTouchedIssues,
+    ],
+  );
+  const shouldUseIssueSearchSupplement =
+    !!selectedCompanyId
+    && normalizedSearchQuery.length > 0;
+  const { data: remoteIssueSearchResults = [] } = useQuery({
+    queryKey: [
+      ...queryKeys.issues.search(selectedCompanyId!, normalizedSearchQuery, undefined, 25),
+      "inbox-supplement",
+    ],
+    queryFn: () =>
+      issuesApi.list(selectedCompanyId!, {
+        q: normalizedSearchQuery,
+        limit: 25,
+        includeRoutineExecutions: true,
+      }),
+    enabled: shouldUseIssueSearchSupplement,
+    placeholderData: (previousData) => previousData,
+  });
+  const issueSearchSupplementResults = useMemo(
+    () =>
+      getInboxSearchSupplementIssues({
+        query: normalizedSearchQuery,
+        filteredWorkItems,
+        archivedSearchIssues,
+        remoteIssues: remoteIssueSearchResults,
+        issueFilters,
+        currentUserId,
+        enableRoutineVisibilityFilter: true,
+      }),
+    [
+      archivedSearchIssues,
+      currentUserId,
+      filteredWorkItems,
+      issueFilters,
+      normalizedSearchQuery,
+      remoteIssueSearchResults,
+    ],
+  );
+  const effectiveWorkItems = useMemo(
+    () =>
+      issueSearchSupplementResults.length > 0
+        ? [
+          ...filteredWorkItems,
+          ...getInboxWorkItems({ issues: issueSearchSupplementResults, approvals: [] }),
+        ]
+        : filteredWorkItems,
+    [filteredWorkItems, issueSearchSupplementResults],
+  );
+  const archivedSearchIssueIds = useMemo(
+    () => new Set(archivedSearchIssues.map((issue) => issue.id)),
+    [archivedSearchIssues],
+  );
 
   // --- Parent-child nesting for inbox issues ---
   const [nestingPreferenceEnabled, setNestingPreferenceEnabled] = useState(() => loadInboxNesting());
   const nestingEnabled = resolveInboxNestingEnabled(nestingPreferenceEnabled, isMobile);
+  useEffect(() => {
+    if (!shouldResetInboxWorkspaceGrouping(groupBy, isolatedWorkspacesEnabled, experimentalSettingsLoaded)) return;
+    setGroupBy("none");
+    saveInboxWorkItemGroupBy("none");
+  }, [experimentalSettingsLoaded, groupBy, isolatedWorkspacesEnabled]);
   const toggleNesting = useCallback(() => {
     setNestingPreferenceEnabled((prev) => {
       const next = !prev;
@@ -974,33 +1110,26 @@ export function Inbox() {
     });
   }, []);
   const [collapsedInboxParents, setCollapsedInboxParents] = useState<Set<string>>(new Set());
-  const groupedSections = useMemo<InboxGroupedSection[]>(() => {
-    return groupInboxWorkItems(filteredWorkItems, groupBy).map((group) => {
-      const nestedGroup = nestingEnabled && group.items.some((item) => item.kind === "issue")
-        ? buildInboxNesting(group.items)
-        : { displayItems: group.items, childrenByIssueId: new Map<string, Issue[]>() };
-
-      return {
-        key: group.key,
-        label: group.label,
-        displayItems: nestedGroup.displayItems,
-        childrenByIssueId: nestedGroup.childrenByIssueId,
-      };
+  const [collapsedGroupKeys, setCollapsedGroupKeys] = useState<Set<string>>(() => loadCollapsedInboxGroupKeys(selectedCompanyId));
+  const toggleGroupCollapse = useCallback((groupKey: string) => {
+    setCollapsedGroupKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(groupKey)) next.delete(groupKey);
+      else next.add(groupKey);
+      saveCollapsedInboxGroupKeys(selectedCompanyId, next);
+      return next;
     });
-  }, [filteredWorkItems, groupBy, nestingEnabled]);
-  const nestedWorkItems = useMemo(
-    () => groupedSections.flatMap((group) => group.displayItems),
-    [groupedSections],
-  );
-  const childrenByIssueId = useMemo(() => {
-    const merged = new Map<string, Issue[]>();
-    for (const group of groupedSections) {
-      for (const [issueId, children] of group.childrenByIssueId) {
-        merged.set(issueId, children);
-      }
-    }
-    return merged;
-  }, [groupedSections]);
+  }, [selectedCompanyId]);
+  const groupedSections = useMemo<InboxGroupedSection[]>(() => [
+    ...buildGroupedInboxSections(effectiveWorkItems, groupBy, nestingEnabled, inboxWorkspaceGrouping),
+    ...buildGroupedInboxSections(
+      getInboxWorkItems({ issues: archivedSearchIssues, approvals: [] }),
+      groupBy,
+      nestingEnabled,
+      inboxWorkspaceGrouping,
+      { keyPrefix: "archived-search:", isArchivedSearch: true },
+    ),
+  ], [archivedSearchIssues, effectiveWorkItems, groupBy, inboxWorkspaceGrouping, nestingEnabled]);
   const totalVisibleWorkItems = useMemo(
     () => groupedSections.reduce((count, group) => count + group.displayItems.length, 0),
     [groupedSections],
@@ -1014,27 +1143,24 @@ export function Inbox() {
     });
   }, []);
 
-  // Build flat navigation list including expanded children for keyboard traversal
+  // Build flat navigation list from visible rows so keyboard traversal respects collapsed groups.
   const flatNavItems = useMemo((): NavEntry[] => {
-    const entries: NavEntry[] = [];
-    let topIndex = 0;
-    for (const group of groupedSections) {
-      for (const item of group.displayItems) {
-        entries.push({ type: "top", index: topIndex, item });
-        if (item.kind === "issue") {
-          const children = group.childrenByIssueId.get(item.issue.id);
-          const isExpanded = children?.length && !collapsedInboxParents.has(item.issue.id);
-          if (isExpanded) {
-            for (const child of children) {
-              entries.push({ type: "child", parentIndex: topIndex, issue: child });
-            }
-          }
-        }
-        topIndex += 1;
-      }
-    }
-    return entries;
-  }, [groupedSections, collapsedInboxParents]);
+    return buildInboxKeyboardNavEntries(groupedSections, collapsedGroupKeys, collapsedInboxParents);
+  }, [collapsedGroupKeys, collapsedInboxParents, groupedSections]);
+  const topFlatIndex = useMemo(() => {
+    const map = new Map<string, number>();
+    flatNavItems.forEach((entry, index) => {
+      if (entry.type === "top") map.set(entry.itemKey, index);
+    });
+    return map;
+  }, [flatNavItems]);
+  const childFlatIndex = useMemo(() => {
+    const map = new Map<string, number>();
+    flatNavItems.forEach((entry, index) => {
+      if (entry.type === "child") map.set(entry.issueId, index);
+    });
+    return map;
+  }, [flatNavItems]);
 
   const agentName = (id: string | null) => {
     if (!id) return null;
@@ -1052,9 +1178,28 @@ export function Inbox() {
     }
     setIssueColumns(visibleIssueColumns.filter((value) => value !== column));
   }, [setIssueColumns, visibleIssueColumns]);
+  const updateFilterPreferences = useCallback(
+    (updater: (previous: InboxFilterPreferences) => InboxFilterPreferences) => {
+      setFilterPreferences((previous) => {
+        const next = updater(previous);
+        saveInboxFilterPreferences(selectedCompanyId, next);
+        return next;
+      });
+    },
+    [selectedCompanyId],
+  );
   const updateIssueFilters = useCallback((patch: Partial<IssueFilterState>) => {
-    setIssueFilters((previous) => ({ ...previous, ...patch }));
-  }, []);
+    updateFilterPreferences((previous) => ({
+      ...previous,
+      issueFilters: { ...previous.issueFilters, ...patch },
+    }));
+  }, [updateFilterPreferences]);
+  const updateAllCategoryFilter = useCallback((value: InboxCategoryFilter) => {
+    updateFilterPreferences((previous) => ({ ...previous, allCategoryFilter: value }));
+  }, [updateFilterPreferences]);
+  const updateAllApprovalFilter = useCallback((value: InboxApprovalFilter) => {
+    updateFilterPreferences((previous) => ({ ...previous, allApprovalFilter: value }));
+  }, [updateFilterPreferences]);
   const updateGroupBy = useCallback((nextGroupBy: InboxWorkItemGroupBy) => {
     setGroupBy(nextGroupBy);
     saveInboxWorkItemGroupBy(nextGroupBy);
@@ -1154,6 +1299,8 @@ export function Inbox() {
   const [fadingOutIssues, setFadingOutIssues] = useState<Set<string>>(new Set());
   const [showMarkAllReadConfirm, setShowMarkAllReadConfirm] = useState(false);
   const [archivingIssueIds, setArchivingIssueIds] = useState<Set<string>>(new Set());
+  const [undoableArchiveIssueIds, setUndoableArchiveIssueIds] = useState<string[]>([]);
+  const [unarchivingIssueIds, setUnarchivingIssueIds] = useState<Set<string>>(new Set());
   const [fadingNonIssueItems, setFadingNonIssueItems] = useState<Set<string>>(new Set());
   const [archivingNonIssueIds, setArchivingNonIssueIds] = useState<Set<string>>(new Set());
   const [selectedIndex, setSelectedIndex] = useState<number>(-1);
@@ -1208,9 +1355,37 @@ export function Inbox() {
         }
       }
     },
-    onSettled: (_data, error, id) => {
+    onSettled: (_data, _error, id) => {
       // Clean up archiving state and refetch to sync with server
       setArchivingIssueIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+      invalidateInboxIssueQueries();
+    },
+    onSuccess: (_data, id) => {
+      setUndoableArchiveIssueIds((prev) => [...prev.filter((issueId) => issueId !== id), id]);
+    },
+  });
+
+  const unarchiveIssueMutation = useMutation({
+    mutationFn: (id: string) => issuesApi.unarchiveFromInbox(id),
+    onMutate: (id) => {
+      setActionError(null);
+      setUnarchivingIssueIds((prev) => new Set(prev).add(id));
+    },
+    onError: (err) => {
+      setActionError(err instanceof Error ? err.message : "Failed to undo inbox archive");
+    },
+    onSuccess: (_data, id) => {
+      setUndoableArchiveIssueIds((prev) => {
+        const next = prev.filter((issueId) => issueId !== id);
+        return next;
+      });
+    },
+    onSettled: (_data, _error, id) => {
+      setUnarchivingIssueIds((prev) => {
         const next = new Set(prev);
         next.delete(id);
         return next;
@@ -1307,17 +1482,15 @@ export function Inbox() {
     return "hidden";
   };
 
-  const getWorkItemKey = useCallback((item: InboxWorkItem): string => {
-    if (item.kind === "issue") return `issue:${item.issue.id}`;
-    if (item.kind === "approval") return `approval:${item.approval.id}`;
-    if (item.kind === "failed_run") return `run:${item.run.id}`;
-    return `join:${item.joinRequest.id}`;
-  }, []);
-
   // Keep selection valid when the list shape changes, but do not auto-select on initial load.
   useEffect(() => {
     setSelectedIndex((prev) => resolveInboxSelectionIndex(prev, flatNavItems.length));
   }, [flatNavItems.length]);
+
+  useEffect(() => {
+    setUndoableArchiveIssueIds([]);
+    setUnarchivingIssueIds(new Set());
+  }, [selectedCompanyId]);
 
   // Use refs for keyboard handler to avoid stale closures
   const kbStateRef = useRef({
@@ -1325,7 +1498,10 @@ export function Inbox() {
     flatNavItems,
     selectedIndex,
     canArchive: canArchiveFromTab,
+    archivedSearchIssueIds,
     archivingIssueIds,
+    undoableArchiveIssueIds,
+    unarchivingIssueIds,
     archivingNonIssueIds,
     fadingOutIssues,
     readItems,
@@ -1335,7 +1511,10 @@ export function Inbox() {
     flatNavItems,
     selectedIndex,
     canArchive: canArchiveFromTab,
+    archivedSearchIssueIds,
     archivingIssueIds,
+    undoableArchiveIssueIds,
+    unarchivingIssueIds,
     archivingNonIssueIds,
     fadingOutIssues,
     readItems,
@@ -1343,6 +1522,7 @@ export function Inbox() {
 
   const kbActionsRef = useRef({
     archiveIssue: (id: string) => archiveIssueMutation.mutate(id),
+    undoArchiveIssue: (id: string) => unarchiveIssueMutation.mutate(id),
     archiveNonIssue: handleArchiveNonIssue,
     markRead: (id: string) => markReadMutation.mutate(id),
     markUnreadIssue: (id: string) => markUnreadMutation.mutate(id),
@@ -1352,6 +1532,7 @@ export function Inbox() {
   });
   kbActionsRef.current = {
     archiveIssue: (id: string) => archiveIssueMutation.mutate(id),
+    undoArchiveIssue: (id: string) => unarchiveIssueMutation.mutate(id),
     archiveNonIssue: handleArchiveNonIssue,
     markRead: (id: string) => markReadMutation.mutate(id),
     markUnreadIssue: (id: string) => markUnreadMutation.mutate(id),
@@ -1386,6 +1567,24 @@ export function Inbox() {
       // Keyboard shortcuts are only active on the "mine" tab
       if (!st.canArchive) return;
 
+      const undoArchiveAction = resolveInboxUndoArchiveKeyAction({
+        hasUndoableArchive: st.undoableArchiveIssueIds.length > 0,
+        defaultPrevented: e.defaultPrevented,
+        key: e.key,
+        metaKey: e.metaKey,
+        ctrlKey: e.ctrlKey,
+        altKey: e.altKey,
+        target,
+        hasOpenDialog: hasBlockingShortcutDialog(document),
+      });
+      if (undoArchiveAction === "undo_archive") {
+        const issueId = st.undoableArchiveIssueIds[st.undoableArchiveIssueIds.length - 1];
+        if (!issueId || st.unarchivingIssueIds.has(issueId)) return;
+        e.preventDefault();
+        act.undoArchiveIssue(issueId);
+        return;
+      }
+
       const navItems = st.flatNavItems;
       const navCount = navItems.length;
       if (navCount === 0) return;
@@ -1415,12 +1614,14 @@ export function Inbox() {
           e.preventDefault();
           const { issue, item } = resolveNavEntry(st.selectedIndex);
           if (issue) {
-            if (!st.archivingIssueIds.has(issue.id)) act.archiveIssue(issue.id);
+            if (!st.archivedSearchIssueIds.has(issue.id) && !st.archivingIssueIds.has(issue.id)) act.archiveIssue(issue.id);
           } else if (item) {
             if (item.kind === "issue") {
-              if (!st.archivingIssueIds.has(item.issue.id)) act.archiveIssue(item.issue.id);
+              if (!st.archivedSearchIssueIds.has(item.issue.id) && !st.archivingIssueIds.has(item.issue.id)) {
+                act.archiveIssue(item.issue.id);
+              }
             } else {
-              const key = getWorkItemKey(item);
+              const key = getInboxWorkItemKey(item);
               if (!st.archivingNonIssueIds.has(key)) act.archiveNonIssue(key);
             }
           }
@@ -1434,7 +1635,7 @@ export function Inbox() {
             act.markUnreadIssue(issue.id);
           } else if (item) {
             if (item.kind === "issue") act.markUnreadIssue(item.issue.id);
-            else act.markNonIssueUnread(getWorkItemKey(item));
+            else act.markNonIssueUnread(getInboxWorkItemKey(item));
           }
           break;
         }
@@ -1448,7 +1649,7 @@ export function Inbox() {
             if (item.kind === "issue") {
               if (item.issue.isUnreadForMe && !st.fadingOutIssues.has(item.issue.id)) act.markRead(item.issue.id);
             } else {
-              const key = getWorkItemKey(item);
+              const key = getInboxWorkItemKey(item);
               if (!st.readItems.has(key)) act.markNonIssueRead(key);
             }
           }
@@ -1462,6 +1663,7 @@ export function Inbox() {
             const pathId = issue.identifier ?? issue.id;
             const detailState = armIssueDetailInboxQuickArchive(withIssueDetailHeaderSeed(issueLinkState, issue));
             rememberIssueDetailLocationState(pathId, detailState);
+            void prefetchIssueDetail(queryClient, pathId, { issue });
             act.navigate(createIssueDetailPath(pathId), { state: detailState });
           } else if (item) {
             if (item.kind === "issue") {
@@ -1470,6 +1672,7 @@ export function Inbox() {
                 withIssueDetailHeaderSeed(issueLinkState, item.issue),
               );
               rememberIssueDetailLocationState(pathId, detailState);
+              void prefetchIssueDetail(queryClient, pathId, { issue: item.issue });
               act.navigate(createIssueDetailPath(pathId), { state: detailState });
             } else if (item.kind === "approval") {
               act.navigate(`/approvals/${item.approval.id}`);
@@ -1485,7 +1688,7 @@ export function Inbox() {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [getWorkItemKey, issueLinkState, keyboardShortcutsEnabled]);
+  }, [issueLinkState, keyboardShortcutsEnabled]);
 
   // Scroll selected item into view
   useEffect(() => {
@@ -1553,10 +1756,28 @@ export function Inbox() {
             placeholder="Search inbox…"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (shouldBlurPageSearchOnEnter({
+                key: e.key,
+                isComposing: e.nativeEvent.isComposing,
+              })) {
+                e.currentTarget.blur();
+                return;
+              }
+
+              if (shouldBlurPageSearchOnEscape({
+                key: e.key,
+                isComposing: e.nativeEvent.isComposing,
+                currentValue: e.currentTarget.value,
+              })) {
+                e.currentTarget.blur();
+              }
+            }}
             className="h-8 w-full pl-8 text-xs"
+            data-page-search-target="true"
           />
         </div>
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
         <Tabs value={tab} onValueChange={(value) => navigate(`/inbox/${value}`)}>
           <PageTabBar
             items={[
@@ -1582,7 +1803,25 @@ export function Inbox() {
               placeholder="Search inbox…"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (shouldBlurPageSearchOnEnter({
+                  key: e.key,
+                  isComposing: e.nativeEvent.isComposing,
+                })) {
+                  e.currentTarget.blur();
+                  return;
+                }
+
+                if (shouldBlurPageSearchOnEscape({
+                  key: e.key,
+                  isComposing: e.nativeEvent.isComposing,
+                  currentValue: e.currentTarget.value,
+                })) {
+                  e.currentTarget.blur();
+                }
+              }}
               className="h-8 w-[220px] pl-8 text-xs"
+              data-page-search-target="true"
             />
           </div>
           <Button
@@ -1604,17 +1843,20 @@ export function Inbox() {
             labels={labels?.map((label) => ({ id: label.id, name: label.name, color: label.color }))}
             currentUserId={currentUserId}
             enableRoutineVisibilityFilter
+            buttonVariant="outline"
+            iconOnly
+            workspaces={isolatedWorkspacesEnabled ? executionWorkspaces.filter((w) => w.mode === "isolated_workspace" && w.status === "active").map((w) => ({ id: w.id, name: w.name })) : undefined}
           />
           <Popover>
             <PopoverTrigger asChild>
               <Button
                 type="button"
                 variant="outline"
-                size="sm"
-                className={cn("h-8 shrink-0 text-xs", groupBy !== "none" && "bg-accent")}
+                size="icon"
+                className={cn("h-8 w-8 shrink-0", groupBy !== "none" && "bg-accent")}
+                title="Group"
               >
-                <Layers className="mr-1.5 h-3.5 w-3.5" />
-                Group
+                <Layers className="h-3.5 w-3.5" />
               </Button>
             </PopoverTrigger>
             <PopoverContent align="end" className="w-40 p-2">
@@ -1622,6 +1864,7 @@ export function Inbox() {
                 {([
                   ["none", "None"],
                   ["type", "Type"],
+                  ...(isolatedWorkspacesEnabled ? ([["workspace", "Workspace"]] as const) : []),
                 ] as const).map(([value, label]) => (
                   <button
                     key={value}
@@ -1645,6 +1888,7 @@ export function Inbox() {
             onToggleColumn={toggleIssueColumn}
             onResetColumns={() => setIssueColumns(DEFAULT_INBOX_ISSUE_COLUMNS)}
             title="Choose which inbox columns stay visible"
+            iconOnly
           />
           {canMarkAllRead && (
             <>
@@ -1691,7 +1935,7 @@ export function Inbox() {
         <div className="flex flex-wrap items-center gap-2">
           <Select
             value={allCategoryFilter}
-            onValueChange={(value) => setAllCategoryFilter(value as InboxCategoryFilter)}
+            onValueChange={(value) => updateAllCategoryFilter(value as InboxCategoryFilter)}
           >
             <SelectTrigger className="h-8 w-[170px] text-xs">
               <SelectValue placeholder="Category" />
@@ -1709,7 +1953,7 @@ export function Inbox() {
           {showApprovalsCategory && (
             <Select
               value={allApprovalFilter}
-              onValueChange={(value) => setAllApprovalFilter(value as InboxApprovalFilter)}
+              onValueChange={(value) => updateAllApprovalFilter(value as InboxApprovalFilter)}
             >
               <SelectTrigger className="h-8 w-[170px] text-xs">
                 <SelectValue placeholder="Approval status" />
@@ -1754,27 +1998,6 @@ export function Inbox() {
           <div>
             <div ref={listRef} className="overflow-hidden rounded-xl border border-border bg-card">
               {(() => {
-                // Pre-compute flat nav index for each top-level item and child issue.
-                let flatIdx = 0;
-                const topFlatIndex = new Map<string, number>();
-                const childFlatIndex = new Map<string, number>();
-                for (const group of groupedSections) {
-                  for (const topItem of group.displayItems) {
-                    const itemKey = `${group.key}:${getWorkItemKey(topItem)}`;
-                    topFlatIndex.set(itemKey, flatIdx);
-                    flatIdx++;
-                    if (topItem.kind === "issue") {
-                      const children = group.childrenByIssueId.get(topItem.issue.id);
-                      const isExpanded = children?.length && !collapsedInboxParents.has(topItem.issue.id);
-                      if (isExpanded) {
-                        for (const child of children) {
-                          childFlatIndex.set(child.id, flatIdx);
-                          flatIdx++;
-                        }
-                      }
-                    }
-                  }
-                }
                 const renderInboxIssue = ({
                   issue,
                   depth,
@@ -1783,6 +2006,7 @@ export function Inbox() {
                   isExpanded = false,
                   childCount = 0,
                   collapseParentId = null,
+                  allowArchive = canArchiveFromTab,
                 }: {
                   issue: Issue;
                   depth: number;
@@ -1791,6 +2015,7 @@ export function Inbox() {
                   isExpanded?: boolean;
                   childCount?: number;
                   collapseParentId?: string | null;
+                  allowArchive?: boolean;
                 }) => {
                   const isUnread = issue.isUnreadForMe && !fadingOutIssues.has(issue.id);
                   const isFading = fadingOutIssues.has(issue.id);
@@ -1857,7 +2082,7 @@ export function Inbox() {
                       }
                       unreadState={isUnread ? "visible" : isFading ? "fading" : "hidden"}
                       onMarkRead={() => markReadMutation.mutate(issue.id)}
-                      onArchive={canArchiveFromTab ? () => archiveIssueMutation.mutate(issue.id) : undefined}
+                      onArchive={allowArchive ? () => archiveIssueMutation.mutate(issue.id) : undefined}
                       archiveDisabled={isArchiving || archiveIssueMutation.isPending}
                       desktopTrailing={
                         visibleTrailingIssueColumns.length > 0 ? (
@@ -1885,23 +2110,44 @@ export function Inbox() {
                 let previousTimestamp = Number.POSITIVE_INFINITY;
                 return groupedSections.flatMap((group, groupIndex) => {
                   const elements: ReactNode[] = [];
+                  const isGroupCollapsed = collapsedGroupKeys.has(group.key);
+                  if (group.isArchivedSearch && (groupIndex === 0 || !groupedSections[groupIndex - 1]?.isArchivedSearch)) {
+                    elements.push(
+                      <div
+                        key="archived-search-divider"
+                        className="flex items-center gap-3 border-y border-border/70 bg-muted/30 px-4 py-2"
+                      >
+                        <div className="h-px flex-1 bg-border/80" />
+                        <span className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          Archived
+                        </span>
+                        <div className="h-px flex-1 bg-border/80" />
+                      </div>,
+                    );
+                  }
                   if (group.label) {
                     elements.push(
                       <div
                         key={`group-${group.key}`}
                         className={cn(
-                          "border-b border-border/70 bg-muted/30 px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground",
-                          groupIndex > 0 && "border-t border-border",
+                          "px-3 sm:px-4",
+                          groupIndex > 0 && "pt-2",
                         )}
                       >
-                        {group.label}
+                        <IssueGroupHeader
+                          label={group.label}
+                          collapsible
+                          collapsed={isGroupCollapsed}
+                          onToggle={() => toggleGroupCollapse(group.key)}
+                        />
                       </div>,
                     );
                   }
+                  if (isGroupCollapsed) return elements;
 
                   for (let index = 0; index < group.displayItems.length; index += 1) {
                     const item = group.displayItems[index]!;
-                    const navIdx = topFlatIndex.get(`${group.key}:${getWorkItemKey(item)}`) ?? 0;
+                    const navIdx = topFlatIndex.get(`${group.key}:${getInboxWorkItemKey(item)}`) ?? 0;
                     const wrapItem = (key: string, isSelected: boolean, child: ReactNode) => (
                       <div
                         key={`sel-${key}`}
@@ -2044,6 +2290,7 @@ export function Inbox() {
                     const childIssues = group.childrenByIssueId.get(issue.id) ?? [];
                     const hasChildren = childIssues.length > 0;
                     const isExpanded = hasChildren && !collapsedInboxParents.has(issue.id);
+                    const canArchiveIssue = canArchiveFromTab && !group.isArchivedSearch;
                     const parentRow = renderInboxIssue({
                       issue,
                       depth: 0,
@@ -2052,9 +2299,10 @@ export function Inbox() {
                       isExpanded,
                       childCount: childIssues.length,
                       collapseParentId: issue.id,
+                      allowArchive: canArchiveIssue,
                     });
 
-                    elements.push(wrapItem(`issue:${issue.id}`, isSelected, canArchiveFromTab ? (
+                    elements.push(wrapItem(`issue:${issue.id}`, isSelected, canArchiveIssue ? (
                       <SwipeToArchive
                         key={`issue:${issue.id}`}
                         selected={isSelected}
@@ -2073,6 +2321,7 @@ export function Inbox() {
                           issue: child,
                           depth: 1,
                           selected: isChildSelected,
+                          allowArchive: canArchiveIssue,
                         });
                         const isChildArchiving = archivingIssueIds.has(child.id);
                         elements.push(
@@ -2082,7 +2331,7 @@ export function Inbox() {
                             className="relative"
                             onClick={() => setSelectedIndex(childNavIdx)}
                           >
-                            {canArchiveFromTab ? (
+                            {canArchiveIssue ? (
                               <SwipeToArchive
                                 key={`issue:${child.id}`}
                                 selected={isChildSelected}

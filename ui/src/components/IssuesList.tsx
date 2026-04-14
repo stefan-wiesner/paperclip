@@ -7,6 +7,10 @@ import { issuesApi } from "../api/issues";
 import { authApi } from "../api/auth";
 import { instanceSettingsApi } from "../api/instanceSettings";
 import { queryKeys } from "../lib/queryKeys";
+import {
+  shouldBlurPageSearchOnEnter,
+  shouldBlurPageSearchOnEscape,
+} from "../lib/keyboardShortcuts";
 import { formatAssigneeUserLabel } from "../lib/assignees";
 import { groupBy } from "../lib/groupBy";
 import {
@@ -15,16 +19,15 @@ import {
   defaultIssueFilterState,
   issueFilterLabel,
   issuePriorityOrder,
+  resolveIssueFilterWorkspaceId,
   issueStatusOrder,
   type IssueFilterState,
 } from "../lib/issue-filters";
 import {
   DEFAULT_INBOX_ISSUE_COLUMNS,
   getAvailableInboxIssueColumns,
-  loadInboxIssueColumns,
   normalizeInboxIssueColumns,
   resolveIssueWorkspaceName,
-  saveInboxIssueColumns,
   type InboxIssueColumn,
 } from "../lib/inbox";
 import { cn } from "../lib/utils";
@@ -38,16 +41,18 @@ import {
 import { StatusIcon } from "./StatusIcon";
 import { EmptyState } from "./EmptyState";
 import { Identity } from "./Identity";
+import { IssueGroupHeader } from "./IssueGroupHeader";
 import { IssueFiltersPopover } from "./IssueFiltersPopover";
 import { IssueRow } from "./IssueRow";
 import { PageSkeleton } from "./PageSkeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
-import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
-import { CircleDot, Plus, ArrowUpDown, Layers, Check, ChevronRight, List, Columns3, User, Search } from "lucide-react";
+import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
+import { CircleDot, Plus, ArrowUpDown, Layers, Check, ChevronRight, List, ListTree, Columns3, User, Search } from "lucide-react";
 import { KanbanBoard } from "./KanbanBoard";
 import { buildIssueTree, countDescendants } from "../lib/issue-tree";
+import { buildSubIssueDefaultsForViewer } from "../lib/subIssueDefaults";
 import type { Issue, Project } from "@paperclipai/shared";
 const ISSUE_SEARCH_DEBOUNCE_MS = 150;
 
@@ -58,6 +63,7 @@ export type IssueViewState = IssueFilterState & {
   sortDir: "asc" | "desc";
   groupBy: "status" | "priority" | "assignee" | "workspace" | "parent" | "none";
   viewMode: "list" | "board";
+  nestingEnabled: boolean;
   collapsedGroups: string[];
   collapsedParents: string[];
 };
@@ -68,9 +74,11 @@ const defaultViewState: IssueViewState = {
   sortDir: "desc",
   groupBy: "none",
   viewMode: "list",
+  nestingEnabled: true,
   collapsedGroups: [],
   collapsedParents: [],
 };
+
 function getViewState(key: string): IssueViewState {
   try {
     const raw = localStorage.getItem(key);
@@ -81,6 +89,43 @@ function getViewState(key: string): IssueViewState {
 
 function saveViewState(key: string, state: IssueViewState) {
   localStorage.setItem(key, JSON.stringify(state));
+}
+
+function getInitialViewState(key: string, initialAssignees?: string[]): IssueViewState {
+  const stored = getViewState(key);
+  if (!initialAssignees) return stored;
+  return {
+    ...stored,
+    assignees: initialAssignees,
+    statuses: [],
+  };
+}
+
+function getIssueColumnsStorageKey(key: string): string {
+  return `${key}:issue-columns`;
+}
+
+function loadIssueColumns(key: string): InboxIssueColumn[] {
+  try {
+    const raw = localStorage.getItem(getIssueColumnsStorageKey(key));
+    if (raw === null) return DEFAULT_INBOX_ISSUE_COLUMNS;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return DEFAULT_INBOX_ISSUE_COLUMNS;
+    return normalizeInboxIssueColumns(parsed);
+  } catch {
+    return DEFAULT_INBOX_ISSUE_COLUMNS;
+  }
+}
+
+function saveIssueColumns(key: string, columns: InboxIssueColumn[]) {
+  try {
+    localStorage.setItem(
+      getIssueColumnsStorageKey(key),
+      JSON.stringify(normalizeInboxIssueColumns(columns)),
+    );
+  } catch {
+    // Ignore localStorage failures.
+  }
 }
 
 function sortIssues(issues: Issue[], state: IssueViewState): Issue[] {
@@ -113,6 +158,7 @@ interface Agent {
 }
 
 type ProjectOption = Pick<Project, "id" | "name"> & Partial<Pick<Project, "color" | "workspaces" | "executionWorkspacePolicy" | "primaryWorkspace">>;
+type IssueListRequestFilters = NonNullable<Parameters<typeof issuesApi.list>[1]>;
 
 interface IssuesListProps {
   issues: Issue[];
@@ -126,9 +172,9 @@ interface IssuesListProps {
   issueLinkState?: unknown;
   initialAssignees?: string[];
   initialSearch?: string;
-  searchFilters?: {
-    participantAgentId?: string;
-  };
+  searchFilters?: Omit<IssueListRequestFilters, "q" | "projectId" | "limit" | "includeRoutineExecutions">;
+  baseCreateIssueDefaults?: Record<string, unknown>;
+  createIssueLabel?: string;
   enableRoutineVisibilityFilter?: boolean;
   onSearchChange?: (search: string) => void;
   onUpdateIssue: (id: string, data: Record<string, unknown>) => void;
@@ -170,9 +216,27 @@ function IssueSearchInput({
         onChange={(e) => {
           setDraftValue(e.target.value);
         }}
+        onKeyDown={(e) => {
+          if (shouldBlurPageSearchOnEnter({
+            key: e.key,
+            isComposing: e.nativeEvent.isComposing,
+          })) {
+            e.currentTarget.blur();
+            return;
+          }
+
+          if (shouldBlurPageSearchOnEscape({
+            key: e.key,
+            isComposing: e.nativeEvent.isComposing,
+            currentValue: e.currentTarget.value,
+          })) {
+            e.currentTarget.blur();
+          }
+        }}
         placeholder="Search issues..."
         className="pl-7 text-xs sm:text-sm"
         aria-label="Search issues"
+        data-page-search-target="true"
       />
     </div>
   );
@@ -191,6 +255,8 @@ export function IssuesList({
   initialAssignees,
   initialSearch,
   searchFilters,
+  baseCreateIssueDefaults,
+  createIssueLabel,
   enableRoutineVisibilityFilter = false,
   onSearchChange,
   onUpdateIssue,
@@ -211,17 +277,13 @@ export function IssuesList({
 
   // Scope the storage key per company so folding/view state is independent across companies.
   const scopedKey = selectedCompanyId ? `${viewStateKey}:${selectedCompanyId}` : viewStateKey;
+  const initialAssigneesKey = initialAssignees?.join("|") ?? "";
 
-  const [viewState, setViewState] = useState<IssueViewState>(() => {
-    if (initialAssignees) {
-      return { ...defaultViewState, assignees: initialAssignees, statuses: [] };
-    }
-    return getViewState(scopedKey);
-  });
+  const [viewState, setViewState] = useState<IssueViewState>(() => getInitialViewState(scopedKey, initialAssignees));
   const [assigneePickerIssueId, setAssigneePickerIssueId] = useState<string | null>(null);
   const [assigneeSearch, setAssigneeSearch] = useState("");
   const [issueSearch, setIssueSearch] = useState(initialSearch ?? "");
-  const [visibleIssueColumns, setVisibleIssueColumns] = useState<InboxIssueColumn[]>(loadInboxIssueColumns);
+  const [visibleIssueColumns, setVisibleIssueColumns] = useState<InboxIssueColumn[]>(() => loadIssueColumns(scopedKey));
   const deferredIssueSearch = useDeferredValue(issueSearch);
   const normalizedIssueSearch = deferredIssueSearch.trim().toLowerCase();
 
@@ -229,16 +291,23 @@ export function IssuesList({
     setIssueSearch(initialSearch ?? "");
   }, [initialSearch]);
 
-  // Reload view state from localStorage when company changes (scopedKey changes).
-  const prevScopedKey = useRef(scopedKey);
+  // Reload view state whenever the persisted context changes.
+  const prevViewStateContextKey = useRef(`${scopedKey}::${initialAssigneesKey}`);
   useEffect(() => {
-    if (prevScopedKey.current !== scopedKey) {
-      prevScopedKey.current = scopedKey;
-      setViewState(initialAssignees
-        ? { ...defaultViewState, assignees: initialAssignees, statuses: [] }
-        : getViewState(scopedKey));
+    const nextContextKey = `${scopedKey}::${initialAssigneesKey}`;
+    if (prevViewStateContextKey.current !== nextContextKey) {
+      prevViewStateContextKey.current = nextContextKey;
+      setViewState(getInitialViewState(scopedKey, initialAssignees));
     }
-  }, [scopedKey, initialAssignees]);
+  }, [scopedKey, initialAssignees, initialAssigneesKey]);
+
+  const prevColumnsScopedKey = useRef(scopedKey);
+  useEffect(() => {
+    if (prevColumnsScopedKey.current !== scopedKey) {
+      prevColumnsScopedKey.current = scopedKey;
+      setVisibleIssueColumns(loadIssueColumns(scopedKey));
+    }
+  }, [scopedKey]);
 
   const updateView = useCallback((patch: Partial<IssueViewState>) => {
     setViewState((prev) => {
@@ -346,6 +415,16 @@ export function IssuesList({
     return map;
   }, [executionWorkspaceById, projectWorkspaceById]);
 
+  const workspaceOptions = useMemo(() => {
+    const options = new Map<string, string>();
+    for (const [workspaceId, workspaceName] of workspaceNameMap) {
+      options.set(workspaceId, workspaceName);
+    }
+    return [...options.entries()]
+      .sort((a, b) => a[1].localeCompare(b[1]))
+      .map(([id, name]) => ({ id, name }));
+  }, [workspaceNameMap]);
+
   const visibleIssueColumnSet = useMemo(() => new Set(visibleIssueColumns), [visibleIssueColumns]);
   const availableIssueColumns = useMemo(
     () => getAvailableInboxIssueColumns(isolatedWorkspacesEnabled),
@@ -404,7 +483,7 @@ export function IssuesList({
         .map((p) => ({ key: p, label: issueFilterLabel(p), items: groups[p]! }));
     }
     if (viewState.groupBy === "workspace") {
-      const groups = groupBy(filtered, (i) => i.projectWorkspaceId ?? "__no_workspace");
+      const groups = groupBy(filtered, (issue) => resolveIssueFilterWorkspaceId(issue) ?? "__no_workspace");
       return Object.keys(groups)
         .sort((a, b) => {
           // Groups with items first, "no workspace" last
@@ -451,8 +530,8 @@ export function IssuesList({
   }, [filtered, viewState.groupBy, agents, agentName, currentUserId, workspaceNameMap, issueTitleMap]);
 
   const newIssueDefaults = useCallback((groupKey?: string) => {
-    const defaults: Record<string, string> = {};
-    if (projectId) defaults.projectId = projectId;
+    const defaults: Record<string, unknown> = { ...(baseCreateIssueDefaults ?? {}) };
+    if (projectId && defaults.projectId === undefined) defaults.projectId = projectId;
     if (groupKey) {
       if (viewState.groupBy === "status") defaults.status = groupKey;
       else if (viewState.groupBy === "priority") defaults.priority = groupKey;
@@ -461,17 +540,29 @@ export function IssuesList({
         else defaults.assigneeAgentId = groupKey;
       }
       else if (viewState.groupBy === "parent" && groupKey !== "__no_parent") {
-        defaults.parentId = groupKey;
+        const parentIssue = issueById.get(groupKey);
+        if (parentIssue) Object.assign(defaults, buildSubIssueDefaultsForViewer(parentIssue, currentUserId));
+        else defaults.parentId = groupKey;
       }
     }
     return defaults;
-  }, [projectId, viewState.groupBy]);
+  }, [baseCreateIssueDefaults, currentUserId, issueById, projectId, viewState.groupBy]);
+
+  const createActionLabel = createIssueLabel ? `Create ${createIssueLabel}` : "Create Issue";
+  const createButtonLabel = createIssueLabel ? `New ${createIssueLabel}` : "New Issue";
+  const openCreateIssueDialog = useCallback((groupKey?: string) => {
+    openNewIssue(newIssueDefaults(groupKey));
+  }, [newIssueDefaults, openNewIssue]);
+
+  const filterToWorkspace = useCallback((workspaceId: string) => {
+    updateView({ workspaces: [workspaceId] });
+  }, [updateView]);
 
   const setIssueColumns = useCallback((next: InboxIssueColumn[]) => {
     const normalized = normalizeInboxIssueColumns(next);
     setVisibleIssueColumns(normalized);
-    saveInboxIssueColumns(normalized);
-  }, []);
+    saveIssueColumns(scopedKey, normalized);
+  }, [scopedKey]);
 
   const toggleIssueColumn = useCallback((column: InboxIssueColumn, enabled: boolean) => {
     if (enabled) {
@@ -493,9 +584,9 @@ export function IssuesList({
       {/* Toolbar */}
       <div className="flex items-center justify-between gap-2 sm:gap-3">
         <div className="flex min-w-0 items-center gap-2 sm:gap-3">
-          <Button size="sm" variant="outline" onClick={() => openNewIssue(newIssueDefaults())}>
+          <Button size="sm" variant="outline" onClick={() => openCreateIssueDialog()}>
             <Plus className="h-4 w-4 sm:mr-1" />
-            <span className="hidden sm:inline">New Issue</span>
+            <span className="hidden sm:inline">{createButtonLabel}</span>
           </Button>
           <IssueSearchInput
             value={issueSearch}
@@ -525,12 +616,26 @@ export function IssuesList({
             </button>
           </div>
 
+          {viewState.viewMode === "list" && (
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className={cn("hidden h-8 w-8 shrink-0 sm:inline-flex", viewState.nestingEnabled && "bg-accent")}
+              onClick={() => updateView({ nestingEnabled: !viewState.nestingEnabled })}
+              title={viewState.nestingEnabled ? "Disable parent-child nesting" : "Enable parent-child nesting"}
+            >
+              <ListTree className="h-3.5 w-3.5" />
+            </Button>
+          )}
+
           <IssueColumnPicker
             availableColumns={availableIssueColumns}
             visibleColumnSet={visibleIssueColumnSet}
             onToggleColumn={toggleIssueColumn}
             onResetColumns={() => setIssueColumns(DEFAULT_INBOX_ISSUE_COLUMNS)}
             title="Choose which issue columns stay visible"
+            iconOnly
           />
 
           <IssueFiltersPopover
@@ -542,15 +647,16 @@ export function IssuesList({
             labels={labels?.map((label) => ({ id: label.id, name: label.name, color: label.color }))}
             currentUserId={currentUserId}
             enableRoutineVisibilityFilter={enableRoutineVisibilityFilter}
+            iconOnly
+            workspaces={isolatedWorkspacesEnabled ? workspaceOptions : undefined}
           />
 
           {/* Sort (list view only) */}
           {viewState.viewMode === "list" && (
             <Popover>
               <PopoverTrigger asChild>
-                <Button variant="ghost" size="sm" className="text-xs">
-                  <ArrowUpDown className="h-3.5 w-3.5 sm:h-3 sm:w-3 sm:mr-1" />
-                  <span className="hidden sm:inline">Sort</span>
+                <Button variant="outline" size="icon" className="h-8 w-8 shrink-0" title="Sort">
+                  <ArrowUpDown className="h-3.5 w-3.5" />
                 </Button>
               </PopoverTrigger>
               <PopoverContent align="end" className="w-48 p-0">
@@ -592,9 +698,8 @@ export function IssuesList({
           {viewState.viewMode === "list" && (
             <Popover>
               <PopoverTrigger asChild>
-                <Button variant="ghost" size="sm" className="text-xs">
-                  <Layers className="h-3.5 w-3.5 sm:h-3 sm:w-3 sm:mr-1" />
-                  <span className="hidden sm:inline">Group</span>
+                <Button variant="outline" size="icon" className="h-8 w-8 shrink-0" title="Group">
+                  <Layers className="h-3.5 w-3.5" />
                 </Button>
               </PopoverTrigger>
               <PopoverContent align="end" className="w-44 p-0">
@@ -632,8 +737,8 @@ export function IssuesList({
         <EmptyState
           icon={CircleDot}
           message="No issues match the current filters or search."
-          action="Create Issue"
-          onAction={() => openNewIssue(newIssueDefaults())}
+          action={createActionLabel}
+          onAction={() => openCreateIssueDialog()}
         />
       )}
 
@@ -658,26 +763,34 @@ export function IssuesList({
             }}
           >
             {group.label && (
-              <div className="flex items-center py-1.5 pl-1 pr-3">
-                <CollapsibleTrigger className="flex items-center gap-1.5">
-                  <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform [[data-state=open]>&]:rotate-90" />
-                  <span className="text-sm font-semibold uppercase tracking-wide">
-                    {group.label}
-                  </span>
-                </CollapsibleTrigger>
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  className="ml-auto text-muted-foreground"
-                  onClick={() => openNewIssue(newIssueDefaults(group.key))}
-                >
-                  <Plus className="h-3 w-3" />
-                </Button>
-              </div>
+              <IssueGroupHeader
+                label={group.label}
+                collapsible
+                collapsed={viewState.collapsedGroups.includes(group.key)}
+                onToggle={() => {
+                  updateView({
+                    collapsedGroups: viewState.collapsedGroups.includes(group.key)
+                      ? viewState.collapsedGroups.filter((k) => k !== group.key)
+                      : [...viewState.collapsedGroups, group.key],
+                  });
+                }}
+                trailing={(
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    className="text-muted-foreground"
+                    onClick={() => openCreateIssueDialog(group.key)}
+                  >
+                    <Plus className="h-3 w-3" />
+                  </Button>
+                )}
+              />
             )}
             <CollapsibleContent>
               {(() => {
-                const { roots, childMap } = buildIssueTree(group.items);
+                const { roots, childMap } = viewState.nestingEnabled
+                  ? buildIssueTree(group.items)
+                  : { roots: group.items, childMap: new Map<string, Issue[]>() };
 
                 const renderIssueRow = (issue: Issue, depth: number) => {
                   const children = childMap.get(issue.id) ?? [];
@@ -751,11 +864,13 @@ export function IssuesList({
                               columns={visibleTrailingIssueColumns}
                               projectName={issueProject?.name ?? null}
                               projectColor={issueProject?.color ?? null}
+                              workspaceId={resolveIssueFilterWorkspaceId(issue)}
                               workspaceName={resolveIssueWorkspaceName(issue, {
                                 executionWorkspaceById,
                                 projectWorkspaceById,
                                 defaultProjectWorkspaceIdByProjectId,
                               })}
+                              onFilterWorkspace={filterToWorkspace}
                               assigneeName={agentName(issue.assigneeAgentId)}
                               currentUserId={currentUserId}
                               parentIdentifier={parentIssue?.identifier ?? null}
@@ -777,15 +892,15 @@ export function IssuesList({
                                         <Identity name={agentName(issue.assigneeAgentId)!} size="sm" />
                                       ) : issue.assigneeUserId ? (
                                         <span className="inline-flex items-center gap-1.5 text-xs">
-                                          <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-dashed border-muted-foreground/35 bg-muted/30">
-                                            <User className="h-3 w-3" />
+                                          <span className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-dashed border-muted-foreground/35 bg-muted/30">
+                                            <User className="h-3.5 w-3.5" />
                                           </span>
                                           {formatAssigneeUserLabel(issue.assigneeUserId, currentUserId) ?? "User"}
                                         </span>
                                       ) : (
                                         <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-                                          <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-dashed border-muted-foreground/35 bg-muted/30">
-                                            <User className="h-3 w-3" />
+                                          <span className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-dashed border-muted-foreground/35 bg-muted/30">
+                                            <User className="h-3.5 w-3.5" />
                                           </span>
                                           Assignee
                                         </span>
